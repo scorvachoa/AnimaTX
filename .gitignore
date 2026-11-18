@@ -1,0 +1,35 @@
+# Dependencias y compilación
+/node_modules/
+/dist/
+/coverage/
+*.tsbuildinfo
+
+# Videos, proyectos, exportaciones y archivos de trabajo locales
+/data/
+
+# Modelos descargados y configuración privada (incluye claves de Gemini)
+/.cache/
+/.local/
+
+# Variables privadas; permite documentar ejemplos sin secretos
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Registros y temporales
+*.log
+*.tmp
+*.temp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Archivos del sistema y editores
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
