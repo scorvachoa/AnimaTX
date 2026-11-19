@@ -4,9 +4,9 @@ export function filmstripTiles(
   scrollLeft,
   aspect,
   frameCount,
+  height = 64,
 ) {
-  const height = 64,
-    width = Math.max(22, Math.round(height * aspect));
+  const width = Math.max(1, Math.round(height * aspect));
   if (!contentWidth || !frameCount) return [];
   const from = Math.max(0, Math.floor(scrollLeft / width) - 1),
     to = Math.min(

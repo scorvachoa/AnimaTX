@@ -342,3 +342,6 @@
   background: #392d48;
   border-color: #9973c5;
 }
+.studio-header .header-actions button.theme-toggle {
+  display: inline-flex;
+}

@@ -1,6 +1,8 @@
 import { animations } from "../src/text-animations.mjs";
+import { validateCover } from "../src/cover.mjs";
 const animationIds = animations.map(([id]) => id);
 export function validateProject(p) {
+  validateCover(p?.cover, p?.duration);
   if (
     p?.script !== undefined &&
     (typeof p.script !== "string" || p.script.length > 20000)
@@ -46,6 +48,11 @@ export function validateProject(p) {
         throw Error("Mayúsculas de palabra inválidas");
     }
   const s = p.style;
+  if (
+    s?.hidePunctuation !== undefined &&
+    typeof s.hidePunctuation !== "boolean"
+  )
+    throw Error("Opción de puntuación inválida");
   if (s) {
     if (s.x !== undefined && (!Number.isFinite(s.x) || s.x < 5 || s.x > 95))
       throw Error("Posición horizontal inválida");

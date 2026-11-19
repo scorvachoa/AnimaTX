@@ -1,4 +1,11 @@
 export function historyGroup(previous, next) {
+  if (JSON.stringify(previous.cover) !== JSON.stringify(next.cover))
+    return (
+      "cover:" +
+      Object.keys(next.cover ?? {})
+        .filter((key) => previous.cover?.[key] !== next.cover?.[key])
+        .join(",")
+    );
   if (previous.script !== next.script) return "script";
   if (JSON.stringify(previous.style) !== JSON.stringify(next.style))
     return (

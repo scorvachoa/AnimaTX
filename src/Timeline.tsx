@@ -25,6 +25,9 @@ export function Timeline({
   const [frame, setFrame] = useState(0),
     [playing, setPlaying] = useState(false),
     [zoom, setZoom] = useState(1);
+  const [compact, setCompact] = useState(
+    () => window.matchMedia("(max-width: 620px)").matches,
+  );
   const [assets, setAssets] = useState<{
       peaks: number[];
       hasAudio: boolean;
@@ -92,6 +95,7 @@ export function Timeline({
         Math.max(0, stripView.scroll - stripView.viewport / 2),
         thumbAspect,
         assets.thumbnailCount,
+        compact ? 36 : 64,
       )
     : [];
   function spriteStyle(index: number, width: number, height: number) {
@@ -150,11 +154,28 @@ export function Timeline({
     const target = section.current;
     if (!target) return;
     const wheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
+      if (!event.ctrlKey && !event.altKey) return;
       event.preventDefault();
+      event.stopPropagation();
       if (dragging.current) return;
       const scroll = scroller.current;
       if (!scroll) return;
+      if (event.altKey && !event.ctrlKey) {
+        // Pause auto-follow so it cannot undo the user's manual navigation.
+        player.current?.pause();
+        const delta =
+          Math.abs(event.deltaX) > Math.abs(event.deltaY)
+            ? event.deltaX
+            : event.deltaY;
+        const unit =
+          event.deltaMode === 1
+            ? 20
+            : event.deltaMode === 2
+              ? scroll.clientWidth
+              : 1;
+        scroll.scrollLeft += delta * unit;
+        return;
+      }
       const factor = Math.exp(-Math.sign(event.deltaY) * 0.15);
       changeZoom(
         zoomRef.current * factor,
@@ -292,7 +313,11 @@ export function Timeline({
       seek(((event.clientX - rect.left) / rect.width) * project.duration);
   };
   return (
-    <section ref={section} className="timeline" aria-label="Línea de tiempo">
+    <section
+      ref={section}
+      className={`timeline ${compact ? "timeline-compact" : ""}`}
+      aria-label="Línea de tiempo"
+    >
       <div className="timeline-toolbar">
         <span className="track-title">Línea de tiempo </span>
         <div className="transport">
@@ -312,6 +337,20 @@ export function Timeline({
             <strong>{timecode(frame / 30)}</strong> <i>|</i>{" "}
             {timecode(project.duration)}
           </span>
+          <button
+            type="button"
+            className="timeline-density"
+            aria-label={
+              compact ? "Expandir línea de tiempo" : "Compactar línea de tiempo"
+            }
+            title={
+              compact ? "Expandir línea de tiempo" : "Compactar línea de tiempo"
+            }
+            aria-pressed={compact}
+            onClick={() => setCompact((value) => !value)}
+          >
+            {compact ? "▴" : "▾"}
+          </button>
         </div>
         <div className="timeline-zoom">
           <button

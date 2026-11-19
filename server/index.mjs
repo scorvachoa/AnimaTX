@@ -11,6 +11,8 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { validateProject } from "./validation.mjs";
 import { createJobLock } from "./job-lock.mjs";
+import { deleteProjectFiles } from "./delete-project.mjs";
+import { listGeminiModels } from "./gemini-models.mjs";
 import { installTemplateRoutes } from "./template-store.mjs";
 import {
   reviewWithGemini,
@@ -96,6 +98,26 @@ app.put("/api/gemini/config", async (req, res, next) => {
     next(e);
   }
 });
+let listingModels = false;
+app.post("/api/gemini/models", async (req, res, next) => {
+  if (listingModels)
+    return res
+      .status(409)
+      .json({ error: "Ya se está cargando la lista de modelos." });
+  listingModels = true;
+  try {
+    const config = await geminiConfig();
+    const apiKey =
+      typeof req.body.apiKey === "string" && req.body.apiKey.trim()
+        ? req.body.apiKey.trim()
+        : config.apiKey;
+    res.json({ models: await listGeminiModels({ apiKey }) });
+  } catch (e) {
+    next(e);
+  } finally {
+    listingModels = false;
+  }
+});
 let testingGemini = false;
 app.post("/api/gemini/test", async (req, res, next) => {
   try {
@@ -153,11 +175,14 @@ const folder = (id) => {
 const read = async (id) =>
   JSON.parse(await fs.readFile(path.join(folder(id), "project.json"), "utf8"));
 const assetJobs = new Map();
+const deletingProjects = new Set();
 app.get("/api/projects/:id/assets", async (req, res, next) => {
   try {
     const p = await read(req.params.id),
       dir = folder(p.id),
       cache = path.join(dir, "timeline-assets.json");
+    if (deletingProjects.has(p.id))
+      return res.status(409).json({ error: "El proyecto se está eliminando." });
     try {
       const cached = JSON.parse(await fs.readFile(cache, "utf8"));
       if (cached.thumbnailVersion === 2) return res.json(cached);
@@ -251,6 +276,8 @@ app.get("/api/projects/:id/assets", async (req, res, next) => {
   }
 });
 const write = async (p) => {
+  if (deletingProjects.has(p.id))
+    throw Error("El proyecto se está eliminando.");
   const temp = path.join(folder(p.id), `project-${randomUUID()}.tmp`);
   await fs.writeFile(temp, JSON.stringify(p, null, 2));
   await fs.rename(temp, path.join(folder(p.id), "project.json"));
@@ -348,6 +375,30 @@ app.post("/api/projects", upload.single("video"), async (req, res, next) => {
     next(e);
   }
 });
+app.delete("/api/projects/:id", async (req, res, next) => {
+  const release = jobLock.tryAcquire();
+  if (!release)
+    return res.status(409).json({
+      error: "Espera a que termine el trabajo en curso antes de eliminar.",
+    });
+  const id = req.params.id;
+  deletingProjects.add(id);
+  try {
+    if (assetJobs.has(id))
+      return res
+        .status(409)
+        .json({ error: "Espera a que termine la generación de miniaturas." });
+    await deleteProjectFiles(data, id);
+    res.json({ id, deleted: true });
+  } catch (e) {
+    if (e.code === "ENOENT")
+      return res.status(404).json({ error: "Proyecto no encontrado." });
+    next(e);
+  } finally {
+    deletingProjects.delete(id);
+    release();
+  }
+});
 app.put("/api/projects/:id", async (req, res, next) => {
   try {
     const old = await read(req.params.id);
@@ -355,6 +406,8 @@ app.put("/api/projects/:id", async (req, res, next) => {
       ...old,
       words: req.body.words,
       script: req.body.script ?? old.script,
+      cover:
+        req.body.cover === null ? undefined : (req.body.cover ?? old.cover),
       style: req.body.style,
     });
     await write(p);
@@ -531,6 +584,11 @@ app.post("/api/projects/:id/:action", async (req, res, next) => {
     release?.();
     next(e);
   }
+});
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    error: "Operación no disponible. Reinicia AnimaTX y vuelve a intentarlo.",
+  });
 });
 app.use(express.static(path.join(root, "dist")));
 app.use((err, req, res, next) => {

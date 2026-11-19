@@ -37,7 +37,7 @@ export function SubtitleFiles({
   }
   return (
     <details className="subtitle-files">
-      <summary>Importar / exportar SRT y VTT</summary>
+      <summary>⋯ Archivos SRT / VTT</summary>
 
       <label className="upload">
         Importar subtítulos

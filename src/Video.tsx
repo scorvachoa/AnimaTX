@@ -1,4 +1,6 @@
 import React from "react";
+import { captionCharacters } from "./caption-display.mjs";
+import type { CoverSettings } from "./cover.mjs";
 import { lineMotion, wordMotion } from "./text-animations.mjs";
 import { captionTime, defaultLeadMs } from "./caption-time.mjs";
 import {
@@ -35,6 +37,7 @@ export type Project = {
   height: number;
   words: Word[];
   script?: string;
+  cover?: CoverSettings;
   style: {
     fontSize: number;
     color: string;
@@ -54,6 +57,7 @@ export type Project = {
     lineGap?: number;
     uppercase?: boolean;
     secondUppercase?: boolean;
+    hidePunctuation?: boolean;
     secondLetterSpacing?: number;
     secondAnimation?: string;
     secondActiveColor?: string;
@@ -162,6 +166,11 @@ export function CaptionVideo({
                 }}
               >
                 {line.map((w, wordIndex) => {
+                  const characters = captionCharacters(
+                    w.text,
+                    s.hidePunctuation,
+                  );
+                  if (!characters.length) return null;
                   const wordAnimation = w.style?.animation ?? animation;
                   const wordSize = w.style?.fontSize ?? size;
                   const wordEffect = wordMotion(
@@ -200,7 +209,7 @@ export function CaptionVideo({
                       }}
                     >
                       {wordAnimation === "typewriter"
-                        ? Array.from(w.text).map((letter, letterIndex) => (
+                        ? characters.map(({ letter, index: letterIndex }) => (
                             <span
                               key={letterIndex}
                               style={{
@@ -213,7 +222,7 @@ export function CaptionVideo({
                               {letter}
                             </span>
                           ))
-                        : w.text}
+                        : characters.map(({ letter }) => letter).join("")}
                     </span>
                   );
                 })}

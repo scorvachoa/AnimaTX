@@ -1,4 +1,4 @@
-export const defaultModel = "gemini-3.8-flash";
+export const defaultModel = "gemini-2.5-flash";
 export async function testGeminiConnection({
   apiKey,
   model = defaultModel,

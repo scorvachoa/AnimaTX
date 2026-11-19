@@ -1,10 +1,55 @@
 import React, { useEffect, useRef, useState } from "react";
 import { zoomPreview, PreviewView } from "./preview-zoom.mjs";
+import { SafeAreaGuide } from "./SafeAreaGuide";
+import { PreviewTools, PreviewGuideSettings } from "./PreviewTools";
 export function PreviewViewport({
   children,
+  width,
+  height,
+  onGuideChange,
 }: {
   children: (scale: number) => React.ReactNode;
+  width: number;
+  height: number;
+  onGuideChange?: (enabled: boolean) => void;
 }) {
+  const [settings, setSettings] = useState<PreviewGuideSettings>({
+    guide: true,
+    grid: false,
+    guideOpacity: 0.5,
+    gridOpacity: 0.85,
+    guideColor: "#707070",
+    gridColor: "#ffffff",
+  });
+  const { guide, grid, guideOpacity, guideColor, gridOpacity, gridColor } =
+    settings;
+  const workspace = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false),
+    [fullscreenError, setFullscreenError] = useState("");
+  useEffect(() => {
+    const changed = () => {
+      setFullscreen(document.fullscreenElement === workspace.current);
+      update({ zoom: 1, x: 0, y: 0 });
+    };
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  async function toggleFullscreen() {
+    setFullscreenError("");
+    try {
+      if (document.fullscreenElement === workspace.current)
+        await document.exitFullscreen();
+      else if (workspace.current?.requestFullscreen)
+        await workspace.current.requestFullscreen();
+      else setFullscreenError("Este navegador no admite pantalla completa.");
+    } catch {
+      setFullscreenError("No se pudo activar la pantalla completa.");
+    }
+  }
+  const supportsGuide = Math.abs(width / height - 9 / 16) < 0.002;
+  useEffect(() => {
+    onGuideChange?.(guide && supportsGuide);
+  }, [guide, supportsGuide, onGuideChange]);
   const host = useRef<HTMLDivElement>(null),
     viewRef = useRef<PreviewView>({ zoom: 1, x: 0, y: 0 }),
     drag = useRef<{ x: number; y: number; view: PreviewView } | null>(null),
@@ -62,7 +107,17 @@ export function PreviewViewport({
     };
   }, []);
   return (
-    <>
+    <div ref={workspace} className="preview-workspace preview-with-tools">
+      <PreviewTools
+        settings={settings}
+        onChange={setSettings}
+        supportsGuide={supportsGuide}
+        fullscreen={fullscreen}
+        onFullscreen={toggleFullscreen}
+        onReset={() => update({ zoom: 1, x: 0, y: 0 })}
+        zoom={view.zoom}
+        error={fullscreenError}
+      />
       <div
         ref={host}
         className={`player-stage preview-viewport ${view.zoom > 1 ? "can-pan" : ""} ${panning ? "is-panning" : ""}`}
@@ -72,7 +127,9 @@ export function PreviewViewport({
             viewRef.current.zoom <= 1 ||
             e.button !== 0 ||
             (e.target instanceof Element &&
-              e.target.closest(".caption-edit-box"))
+              e.target.closest(
+                ".caption-edit-box, [data-preview-text-edit], .safe-guide-controls",
+              ))
           )
             return;
           e.preventDefault();
@@ -124,8 +181,40 @@ export function PreviewViewport({
           }}
         >
           {children(view.zoom)}
+          {guide && supportsGuide && (
+            <SafeAreaGuide opacity={guideOpacity} color={guideColor} />
+          )}
+          {grid && (
+            <svg
+              className="preview-thirds-grid"
+              viewBox={`0 0 ${width} ${height}`}
+              preserveAspectRatio="xMidYMid meet"
+              aria-hidden="true"
+            >
+              <defs>
+                <path
+                  id="preview-thirds-lines"
+                  d={`M${width / 3} 0V${height}M${(width * 2) / 3} 0V${height}M0 ${height / 3}H${width}M0 ${(height * 2) / 3}H${width}`}
+                />
+              </defs>
+              <use
+                href="#preview-thirds-lines"
+                stroke="#000"
+                strokeOpacity={gridOpacity * 0.6}
+                strokeWidth="3"
+                vectorEffect="non-scaling-stroke"
+              />
+              <use
+                href="#preview-thirds-lines"
+                stroke={gridColor}
+                strokeOpacity={gridOpacity}
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

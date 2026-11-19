@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { readApiResponse } from "./api-response.mjs";
+const fallbackModels = [{ id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" }];
 export function GeminiSettings({
   onClose,
   onSaved,
@@ -7,6 +9,10 @@ export function GeminiSettings({
   onSaved: (configured: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const modelsRequest = useRef<AbortController | null>(null);
+  const [models, setModels] = useState(fallbackModels),
+    [modelsLoading, setModelsLoading] = useState(false),
+    [modelsError, setModelsError] = useState("");
   const [configured, setConfigured] = useState(false),
     [key, setKey] = useState(""),
     [model, setModel] = useState(""),
@@ -23,10 +29,36 @@ export function GeminiSettings({
         if (!r.ok) throw Error(c.error);
         setConfigured(c.configured);
         setModel(c.model);
+        if (c.configured) void loadModels("");
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    return () => modelsRequest.current?.abort();
   }, []);
+  async function loadModels(apiKey = key) {
+    modelsRequest.current?.abort();
+    const controller = new AbortController();
+    modelsRequest.current = controller;
+    setModelsLoading(true);
+    setModelsError("");
+    try {
+      const response = await fetch("/api/gemini/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        signal: controller.signal,
+      });
+      const result = await readApiResponse(response);
+      if (controller.signal.aborted) return;
+      setModels(result.models);
+      if (!result.models.length)
+        setModelsError("No se encontraron modelos de texto para esta clave.");
+    } catch (error) {
+      if (!controller.signal.aborted) setModelsError((error as Error).message);
+    } finally {
+      if (!controller.signal.aborted) setModelsLoading(false);
+    }
+  }
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -105,15 +137,56 @@ export function GeminiSettings({
                   ? "Clave guardada · deja vacío para conservar"
                   : "Pega tu clave de Gemini"
               }
-              onChange={(e) => setKey(e.target.value)}
+              onChange={(e) => {
+                modelsRequest.current?.abort();
+                setModelsLoading(false);
+                setModelsError("");
+                setModels(fallbackModels);
+                setKey(e.target.value);
+              }}
             />
           </label>
           <label>
             Modelo
-            <input value={model} onChange={(e) => setModel(e.target.value)} />
+            <select
+              value={model}
+              onChange={(e) => {
+                setModel(e.target.value);
+                setTestMessage("");
+              }}
+              disabled={modelsLoading}
+            >
+              {!models.some((entry) => entry.id === model) && model && (
+                <option value={model}>{model} (actual)</option>
+              )}
+              {models.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name} · {entry.id}
+                </option>
+              ))}
+            </select>
           </label>
+          <button
+            type="button"
+            className="gemini-models-refresh"
+            disabled={modelsLoading || (!key.trim() && !configured)}
+            onClick={() => loadModels()}
+          >
+            {modelsLoading
+              ? "Cargando modelos…"
+              : "↻ Cargar modelos disponibles"}
+          </button>
+          {modelsError && (
+            <p className="gemini-models-notice" role="status">
+              {modelsError}
+            </p>
+          )}
 
-          <button className="primary" type="submit">
+          <button
+            className="primary"
+            type="submit"
+            disabled={modelsLoading || !model}
+          >
             {saving ? "Guardando…" : "Guardar configuración"}
           </button>
           <button

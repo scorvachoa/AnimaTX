@@ -32,11 +32,7 @@ export function ScriptPanel({
   }, [project.id, project.script, fingerprint]);
   const changes = parts?.filter((p) => p.kind === "change") ?? [];
   return (
-    <details className="script-panel" open>
-      <summary>
-        Guion original <span>Texto definitivo</span>
-      </summary>
-
+    <section className="script-panel" aria-label="Guion original">
       <label className="script-label">
         Guion
         <textarea
@@ -51,12 +47,14 @@ export function ScriptPanel({
       <div className="script-actions">
         <button
           disabled={disabled || !project.script?.trim()}
+          className="primary"
+          title="Calcula tiempos por palabra analizando el audio del video."
           onClick={onAlign}
         >
-          Alinear guion con el audio
+          Sincronizar con audio
         </button>
         <button
-          className="primary"
+          title="Reemplaza el texto por el guion; estima tiempos en fragmentos modificados."
           disabled={
             disabled || !project.script?.trim() || !project.words.length
           }
@@ -83,7 +81,7 @@ export function ScriptPanel({
             }
           }}
         >
-          Adaptar subtítulos al guion
+          Usar guion como texto
         </button>
         <button
           disabled={
@@ -98,7 +96,7 @@ export function ScriptPanel({
             }
           }}
         >
-          Contrastar con transcripción
+          Comparar texto
         </button>
         <small>{(project.script ?? "").length} / 20 000 caracteres</small>
       </div>
@@ -164,6 +162,6 @@ export function ScriptPanel({
           </div>
         </>
       )}
-    </details>
+    </section>
   );
 }

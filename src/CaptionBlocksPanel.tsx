@@ -15,7 +15,7 @@ export function CaptionBlocksPanel({
   const [cuts, setCuts] = useState<Record<string, string>>({});
   const blocks = captionBlocks(project.words, project.style.wordsPerBlock);
   return (
-    <details className="caption-block-panel">
+    <details className="caption-block-panel" open>
       <summary>Frases y bloques · {blocks.length}</summary>
       <p>
         Al ajustar un bloque se fijan los cortes actuales. Se conservan al
