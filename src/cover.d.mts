@@ -1,6 +1,8 @@
+import type { CoverLine } from "./cover-lines.mjs";
 export type CoverSettings = {
   time: number;
   title: string;
+  lines?: CoverLine[];
   template: string;
   fontFamily: string;
   fontSize: number;
@@ -42,4 +44,5 @@ export function drawCover(
   video: HTMLVideoElement,
   cover: CoverSettings,
   safeGuide?: boolean,
+  onLayout?: (layout: import("./cover-lines.mjs").CoverTextRect[]) => void,
 ): import("./caption-position.mjs").CaptionBounds | undefined;

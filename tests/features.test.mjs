@@ -17,7 +17,10 @@ test("CTC encuentra palabras en probabilidades acústicas, incluido blank", () =
   assert.equal(r.words[1].text, "b");
   assert.ok(r.confidence > 0.99);
   assert.deepEqual(scriptTokens("niño").tokens, scriptTokens("nino").tokens);
-  assert.throws(() => scriptTokens("2026"), /números/);
+  assert.deepEqual(
+    scriptTokens("2026").tokens,
+    scriptTokens("dos mil veintiseis").tokens,
+  );
 });
 test("SRT y VTT importan cues conservando texto, orden y límites del video", () => {
   const input =

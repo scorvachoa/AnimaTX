@@ -1,15 +1,17 @@
+import {
+  CoverTextRect,
+  moveCoverSelection,
+  hitCoverLine,
+} from "./cover-lines.mjs";
 import React, { useEffect, useRef, useState } from "react";
 import { Project } from "./Video";
 import { CoverSettings, coverDefaults, drawCover } from "./cover.mjs";
-import {
-  CaptionBounds,
-  constrainPosition,
-  offsetPosition,
-  positionOffset,
-} from "./caption-position.mjs";
+import { CaptionBounds, constrainPosition } from "./caption-position.mjs";
 import { PreviewViewport } from "./PreviewViewport";
 export function CoverPreview({
   project,
+  selectedLine,
+  onSelectLine,
   disabled,
   onChange,
   safeGuide = false,
@@ -17,6 +19,8 @@ export function CoverPreview({
   onGuideChange,
 }: {
   project: Project;
+  selectedLine: number[];
+  onSelectLine: (index: number | null, additive?: boolean) => void;
   disabled: boolean;
   onChange: (cover: CoverSettings) => void;
   safeGuide?: boolean;
@@ -26,18 +30,20 @@ export function CoverPreview({
   const canvas = useRef<HTMLCanvasElement>(null),
     video = useRef<HTMLVideoElement>(null);
   const area = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<CoverTextRect[]>([]);
   const titleBounds = useRef<CaptionBounds>({ halfWidth: 20, halfHeight: 5 });
   useEffect(() => {
     const element = area.current;
     if (!element) return;
     const resize = () => {
-      if (!canvas.current) return;
+      if (!canvas.current || !frame.current) return;
       const width = Math.max(
         0,
         Math.min(element.clientWidth, (element.clientHeight * 9) / 16),
       );
-      canvas.current.style.width = `${width}px`;
-      canvas.current.style.height = `${(width * 16) / 9}px`;
+      frame.current.style.width = `${width}px`;
+      frame.current.style.height = `${(width * 16) / 9}px`;
     };
     const observer = new ResizeObserver(resize);
     observer.observe(element);
@@ -56,6 +62,10 @@ export function CoverPreview({
     width: number;
     height: number;
     cover: CoverSettings;
+    index: number;
+    layout: CoverTextRect[];
+    selection: number[];
+    moved: boolean;
   } | null>(null);
   function render() {
     if (canvas.current && video.current?.readyState && !video.current.seeking) {
@@ -64,6 +74,10 @@ export function CoverPreview({
         video.current,
         latest.current,
         safeGuide,
+        (next) =>
+          setLayout((current) =>
+            JSON.stringify(current) === JSON.stringify(next) ? current : next,
+          ),
       );
       if (bounds) {
         titleBounds.current = bounds;
@@ -139,7 +153,7 @@ export function CoverPreview({
         playsInline
         hidden
         onLoadedData={seek}
-        onSeeked={render}
+        onSeeked={seek}
         onError={() => {
           setError("No se pudo cargar el video para la portada.");
           setReady(false);
@@ -157,59 +171,111 @@ export function CoverPreview({
       )}
       <PreviewViewport width={1080} height={1920} onGuideChange={onGuideChange}>
         {() => (
-          <div ref={area} className="cover-canvas-area">
-            <canvas
-              data-preview-text-edit="true"
-              ref={canvas}
-              width={1080}
-              height={1920}
-              aria-label="Vista previa de miniatura. Arrastra para mover el título."
-              onPointerDown={(e) => {
-                if (disabled || !ready || e.button !== 0) return;
-                const r = e.currentTarget.getBoundingClientRect();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                drag.current = {
-                  x: e.clientX,
-                  y: e.clientY,
-                  width: r.width,
-                  height: r.height,
-                  cover: latest.current,
-                };
-              }}
-              onPointerMove={(e) => {
-                const d = drag.current;
-                if (!d || disabled) return;
-                onChange({
-                  ...d.cover,
-                  ...constrainPosition(
-                    {
-                      x: offsetPosition(
-                        "x",
-                        positionOffset(
-                          "x",
-                          d.cover.x + ((e.clientX - d.x) / d.width) * 100,
-                        ),
-                      ),
-                      y: offsetPosition(
-                        "y",
-                        positionOffset(
-                          "y",
-                          d.cover.y + ((e.clientY - d.y) / d.height) * 100,
-                        ),
-                      ),
-                    },
+          <div
+            ref={area}
+            className="cover-canvas-area"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) onSelectLine(null);
+            }}
+          >
+            <div ref={frame} className="cover-interactive-frame">
+              <canvas
+                data-preview-text-edit="true"
+                ref={canvas}
+                width={1080}
+                height={1920}
+                aria-label="Vista previa de miniatura. Selecciona un texto y arrastra para moverlo."
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    onSelectLine(null);
+                    event.stopPropagation();
+                  }
+                }}
+                onPointerDown={(e) => {
+                  if (disabled || !ready || e.button !== 0) return;
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const index = hitCoverLine(
+                    layout,
+                    ((e.clientX - r.left) / r.width) * 1080,
+                    ((e.clientY - r.top) / r.height) * 1920,
+                  );
+                  const additive = e.ctrlKey || e.metaKey;
+                  const selection =
+                    index !== null && selectedLine.includes(index) && !additive
+                      ? selectedLine
+                      : index === null
+                        ? []
+                        : [index];
+                  if (
+                    additive ||
+                    index === null ||
+                    !selectedLine.includes(index)
+                  )
+                    onSelectLine(index, additive);
+                  e.currentTarget.focus({ preventScroll: true });
+                  if (index === null || additive) return;
+                  e.preventDefault();
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  drag.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    width: r.width,
+                    height: r.height,
+                    cover: latest.current,
+                    index,
+                    layout,
+                    selection,
+                    moved: false,
+                  };
+                }}
+                onPointerMove={(e) => {
+                  const d = drag.current;
+                  if (!d || disabled) return;
+                  const dx = ((e.clientX - d.x) / d.width) * 100,
+                    dy = ((e.clientY - d.y) / d.height) * 100;
+                  if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) < 3)
+                    return;
+                  d.moved = true;
+                  const lines = moveCoverSelection(
+                    d.cover,
+                    d.layout,
+                    d.selection,
+                    dx,
+                    dy,
                     safeGuide,
-                    titleBounds.current,
-                  ),
-                });
-              }}
-              onPointerUp={() => {
-                drag.current = null;
-              }}
-              onPointerCancel={() => {
-                drag.current = null;
-              }}
-            />
+                  );
+                  onChange({
+                    ...latest.current,
+                    lines,
+                    title: lines.map((line) => line.text).join("\n"),
+                  });
+                }}
+                onPointerUp={() => {
+                  if (drag.current && !drag.current.moved)
+                    onSelectLine(drag.current.index);
+                  drag.current = null;
+                }}
+                onPointerCancel={() => {
+                  drag.current = null;
+                }}
+              />
+              {layout
+                .filter((rect) => selectedLine.includes(rect.index))
+                .map((rect) => (
+                  <div
+                    key={rect.index}
+                    className="cover-text-selection"
+                    aria-hidden="true"
+                    style={{
+                      left: rect.x / 10.8 + "%",
+                      top: rect.y / 19.2 + "%",
+                      width: rect.width / 10.8 + "%",
+                      height: rect.height / 19.2 + "%",
+                    }}
+                  />
+                ))}
+            </div>
           </div>
         )}
       </PreviewViewport>

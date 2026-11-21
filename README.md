@@ -31,13 +31,13 @@ Abre [el editor de desarrollo](http://127.0.0.1:5173). Este comando inicia Vite 
 | Panel           | Funciones                                                                                                    |
 | --------------- | ------------------------------------------------------------------------------------------------------------ |
 | **Videos**      | Subir, abrir y eliminar proyectos.                                                                           |
-| **Subtítulos**  | Texto: transcribir y editar palabras. Frases: organizar bloques. Tiempos: sincronización y tiempos precisos. |
-| **Estilos**     | Plantillas predeterminadas y personales; personalización por Diseño, Texto, Animación y Posición.            |
-| **Miniatura**   | Fotograma, Plantilla, Título y Encuadre en pestañas; descarga PNG desde el preview.                          |
+| **Subtítulos**  | Texto y tiempos: transcribir, editar palabras, sincronizar y ajustar tiempos. Frases: organizar bloques. |
+| **Estilos**     | Plantillas predeterminadas y personales; personalización por Diseño, Texto y Posición.            |
+| **Miniatura**   | Plantilla, Título y Encuadre en pestañas; fotograma desde la línea de tiempo y descarga PNG desde el preview.                          |
 | **Guion**       | Comparar, adaptar y alinear el guion con el audio.                                                           |
 | **Revisión IA** | Revisar correcciones; configuración y prueba de Gemini en una sección secundaria.                            |
 
-En **Estilos → Personalizar**, usa **Superior / Inferior** para editar cada línea por separado. La sincronización está en **Subtítulos → Tiempos**. Las pestañas se recuerdan por proyecto durante la sesión del navegador, incluso al cambiar de menú o recargar. Las flechas recorren las pestañas; Inicio/Fin seleccionan la primera/última. Esta preferencia de interfaz no cambia los diseños ni sus valores guardados.
+En **Estilos → Personalizar**, usa **Superior / Inferior** para editar cada línea por separado. La sincronización está en **Subtítulos → Texto y tiempos**. Las pestañas se recuerdan por proyecto durante la sesión del navegador, incluso al cambiar de menú o recargar. Las flechas recorren las pestañas; Inicio/Fin seleccionan la primera/última. Esta preferencia de interfaz no cambia los diseños ni sus valores guardados.
 
 ## Flujo de trabajo
 
@@ -47,15 +47,15 @@ En **Estilos → Personalizar**, usa **Superior / Inferior** para editar cada l�
 4. Revisa las palabras, frases y tiempos desde **Subtítulos** y la línea de tiempo.
 5. Pulsa **Exportar video** para generar un MP4 con los subtítulos integrados en la imagen.
 
-El video de trabajo se normaliza a 30 fps y hasta 1080 píxeles de ancho. El archivo original seleccionado no se modifica.
+El video de trabajo se normaliza a 30 fps y hasta 1080 píxeles de ancho. Se conserva una copia del original dentro del proyecto y sus metadatos (resolución, FPS, bitrate y audio). El archivo original seleccionado no se modifica. Esto requiere espacio para ambas copias.
 
-En **Videos → Proyectos**, el botón de papelera elimina el proyecto tras confirmar: borra su video de trabajo, subtítulos, miniaturas y exportaciones. No elimina el archivo original seleccionado ni las plantillas personales. Es irreversible y se bloquea mientras haya un trabajo pesado o se estén generando miniaturas del proyecto.
+En **Videos → Proyectos**, el botón de papelera elimina el proyecto tras confirmar: borra su video de trabajo, la copia del original guardada en el proyecto, subtítulos, miniaturas y exportaciones. No elimina el archivo original seleccionado ni las plantillas personales. Es irreversible y se bloquea mientras haya un trabajo pesado o se estén generando miniaturas del proyecto.
 
 ## Miniaturas para shorts
 
 La vista previa de Miniatura incluye la misma barra vertical que el video: **Guía**, **Grilla**, **Pantalla completa** y **Ajustar**, con controles independientes de visibilidad, color y opacidad. **Ctrl + rueda** amplía la vista; puedes mover el título sobre la imagen y desplazar la vista ampliada arrastrando el fondo. **Ajustar** restaura el 100%; **Esc** sale de pantalla completa. El zoom de vista previa, la guía y la grilla no se incluyen en el PNG ni cambian su resolución.
 
-En **Miniatura**, selecciona un instante con el deslizador o pulsa **Usar fotograma actual del video** para capturar la posición de la línea de tiempo. El editor utiliza el video normalizado sin subtítulos integrados.
+En **Miniatura**, selecciona el fotograma directamente en la línea de tiempo. La vista previa se actualiza al recorrer o reproducir el video, sin un botón de captura. Al volver al menú se recupera el instante guardado. El editor utiliza el video normalizado sin subtítulos integrados. Las nueve plantillas combinan de una a tres líneas. Selecciona un texto directamente en el preview para abrir **Título** con un único campo y sus ajustes. También puedes seleccionarlo desde la lista compacta de textos. Usa **Ctrl + clic** en el preview o en la lista para añadir o quitar textos de la selección. Al seleccionar varios, puedes arrastrarlos juntos y aplicarles cambios de estilo desde un único panel; cada uno conserva su contenido. El panel muestra los valores del último texto seleccionado. Arrastra para mover solo esa línea; haz clic fuera o pulsa Escape con el preview enfocado para deseleccionar. El borde de selección no se incluye en el PNG. Los ajustes de **Bloque completo** mantienen la alineación conjunta. Cada texto permite personalizar fuente, tamaño, color, negrita, cursiva, subrayado, mayúsculas, espaciado, contorno y sombra con interruptores. El texto se conserva al cambiar de plantilla y se redistribuye según sus líneas. La miniatura es una imagen PNG estática; no incluye animación ni resaltado de palabra activa.
 
 Elige una de las nueve plantillas en la grilla 3×3 (**Impacto**, **Editorial**, **Contraste**, **Neón**, **Cine**, **Manuscrito**, **Cómic**, **Minimal** y **Marco**), escribe un título de hasta 160 caracteres y ajusta fuente, tamaño, colores, borde y fondo. Arrastra sobre la portada para mover el título, o usa las posiciones horizontal y vertical. El encuadre incluye zoom y desplazamientos de la imagen, con recorte proporcional a 9:16.
 
@@ -83,13 +83,17 @@ Se generan entre 12 y 120 miniaturas proporcionales y una forma de onda del audi
 
 ## Frases y estilos
 
-En **Estilos → Personalizar → Texto**, **Ocultar puntuación (. , ; :)** elimina visualmente esos cuatro signos en ambas líneas del preview y del MP4. Es reversible y conserva el texto original para edición, guion, Gemini, agrupación y SRT/VTT. No cambia palabras ni tiempos; la máquina de escribir conserva los instantes de los caracteres originales. No afecta a los títulos de Miniatura.
+En **Subtítulos → Texto y tiempos → Palabras**, cada fila tiene un botón **＋** para insertar una palabra justo debajo, además de eliminarla. **Agregar al final** conserva la inserción al final de la lista. Se utiliza un hueco temporal si existe; de lo contrario se reparte el tiempo de una palabra vecina y se muestra un aviso. Si no hay espacio suficiente se solicita ajustar los tiempos. La nueva palabra queda seleccionada para editarla; los cambios admiten deshacer y guardado automático. Los bloques fijados conservan su agrupación.
+
+En **Estilos → Personalizar → Texto**, cada línea tiene tipografía, negrita, cursiva, subrayado, tamaño, colores y animación independientes. Contorno y sombra permiten ajustar color, opacidad y tamaño. Los botones de mayúsculas, minúsculas, texto original y primera letra mayúscula cambian la presentación sin modificar la transcripción.
+
+En esa misma sección, **Ocultar puntuación (. , ; :)** elimina visualmente esos cuatro signos en ambas líneas del preview y del MP4. Es reversible y conserva el texto original para edición, guion, Gemini, agrupación y SRT/VTT. No cambia palabras ni tiempos; la máquina de escribir conserva los instantes de los caracteres originales. No afecta a los títulos de Miniatura.
 
 En **Estilos → Personalizar → Posición**, las posiciones muestran **0.0 en el centro del video**, con derecha/arriba positivas e izquierda/abajo negativas. Los botones alinean a izquierda/centro/derecha y arriba/centro/abajo. Los deslizadores se imantan al centro dentro de un punto; las flechas permiten ajustar sin quedar atrapado en el imán. Con la guía 9:16 habilitada, los controles de posición y el arrastre respetan sus límites considerando el tamaño del texto visible. Si no hay texto visible se usa la última medida o una estimación inicial; conviene pausar sobre la frase que quieres alinear. Un bloque demasiado grande muestra un aviso para reducir el tamaño. Las posiciones internas siguen guardadas en porcentajes para conservar proyectos y plantillas anteriores.
 
 La agrupación automática considera puntuación, pausas y conectores frecuentes en español. La cantidad de palabras por bloque es orientativa: admite hasta dos palabras adicionales y considera límites de cuatro segundos y 64 caracteres, salvo una palabra individual que ya los exceda. El modo de una palabra por bloque conserva ese comportamiento. Son reglas locales, no un análisis semántico completo.
 
-En **Subtítulos → Frases**, puedes dividir después de una palabra o unir con la siguiente. La primera modificación fija los cortes actuales, que se conservan al cambiar de plantilla. **Restablecer agrupación automática** elimina esos cortes, incluidos los importados. No cambia las palabras ni sus tiempos.
+En **Subtítulos → Frases**, puedes editar directamente el texto de cada bloque; se sincroniza en ambas direcciones con **Texto y tiempos** y el preview. Al corregir palabras se conservan sus tiempos cuando es posible; al añadir o quitar palabras, sus tiempos se estiman dentro del intervalo de esa frase sin desplazar las vecinas. Cada frase usa un campo de una sola línea: pulsa **Enter** para dividir en la posición del cursor y continuar en la segunda frase. El inicio o final del campo no crea frases vacías. Si vacías una frase, se elimina al salir del campo o pulsar Enter; también desaparece de Texto y tiempos y admite deshacer. También puedes unir con la siguiente. La primera modificación fija los cortes actuales, que se conservan al cambiar de plantilla. **Restablecer agrupación automática** elimina esos cortes, incluidos los importados. No cambia las palabras ni sus tiempos.
 
 En dos líneas, la separación automática considera la longitud del texto y evita dejar conectores al final. Una cantidad explícita de palabras para la línea superior conserva tu elección. Preview, MP4 y SRT/VTT comparten la agrupación.
 
@@ -105,7 +109,7 @@ Pega el texto definitivo en **Guion** y elige:
 - **Usar guion como texto:** conserva tiempos en sustituciones uno a uno y estima los fragmentos con inserciones o eliminaciones, sin volver a analizar el audio.
 - **Sincronizar con audio:** calcula tiempos por palabra mediante alineación acústica CTC con MMS-300M. Descarga unos 317 MB la primera vez; después reutiliza la caché. No requiere Python.
 
-Para la alineación acústica, usa español, inglés o portugués, escribe los números con letras y un guion que corresponda a lo que se escucha. Revisa los resultados con confianza baja. La operación regenera los subtítulos y admite deshacer durante la sesión.
+Para la alineación acústica, usa español, inglés o portugués y un guion que corresponda a lo que se escucha. Los números se convierten internamente a su pronunciación para analizar el audio, conservando los dígitos originales en los subtítulos. Se admiten enteros, años, separadores de miles, decimales, porcentajes, horas e importes como S/25, $10 y €1. Separadores seguidos de grupos de tres cifras se interpretan como miles. Si un número se pronuncia de otra forma (por ejemplo, un identificador leído dígito a dígito), puedes escribir esa pronunciación con letras. Revisa los resultados con confianza baja. La operación regenera los subtítulos y admite deshacer durante la sesión.
 
 ## SRT y VTT
 
@@ -164,3 +168,15 @@ Las pruebas cubren agrupación, sincronización, edición temporal, CTC, formato
 ## Licencias
 
 El proyecto declara licencia ISC en `package.json`. Los modelos y dependencias conservan sus propias condiciones. El [modelo de alineación MMS-300M](https://huggingface.co/onnx-community/mms-300m-1130-forced-aligner-ONNX) declara CC-BY-NC-4.0; tenlo en cuenta antes de ampliar el uso personal. Consulta también los [términos de Remotion](https://www.remotion.dev/pricing).
+
+La exportación MP4 usa automáticamente el original como referencia: resolución orientada, FPS y bitrate de video. Los subtítulos mantienen la proporción del preview. Se conserva H.264 o H.265; otros códecs se convierten a H.264 por compatibilidad. El audio AAC/MP3 se copia sin recodificar; otros formatos pasan a AAC usando los parámetros compatibles de referencia. Las dimensiones impares se ajustan a pares y el video con FPS variables se exporta a FPS constantes de referencia. El tamaño final puede variar: el bitrate es un objetivo, no un límite exacto.
+
+Los proyectos anteriores usan su video de trabajo como referencia porque ya no conservan el original. Para recuperar sus parámetros originales, importa el archivo de nuevo. La exportación usa un solo render en paralelo y 128 MB de caché de video. La importación limita FFmpeg a dos hilos.
+
+## Uso de recursos
+
+AnimaTX usa una cola común para importación, miniaturas, transcripción, sincronización y exportación: solo procesa una tarea pesada a la vez. La IA y FFmpeg usan hasta dos hilos; los filtros de FFmpeg usan uno. El proceso del servidor y sus comandos FFmpeg solicitan prioridad inferior a la normal cuando el sistema lo permite. La exportación conserva los parámetros del original y usa un render en paralelo con 128 MB de caché. Estos límites reducen la presión de recursos; no equivalen a un porcentaje fijo de CPU o RAM.
+
+Antes de iniciar se comprueba la memoria disponible: 1,25 GiB para IA, 768 MiB para exportación y 384 MiB para importación o miniaturas. Si no hay margen, se muestra un mensaje para liberar memoria. El alineador almacena las decisiones en dos bits (cuatro veces menos memoria), reutiliza sus filas y libera el modelo antes del cálculo final. Los modelos siguen en formato cuantizado q8.
+
+El botón **Cancelar**, junto al estado del trabajo, detiene transcripción, sincronización o exportación, incluida su espera en la cola. El siguiente trabajo empieza después de liberar el anterior. Una llamada nativa de IA puede tardar en devolver el control. Los resultados incompletos no reemplazan los subtítulos y los archivos temporales del trabajo se limpian. Procesar con menos hilos puede tardar más. Reinicia el servidor después de actualizar.

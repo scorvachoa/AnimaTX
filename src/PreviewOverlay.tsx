@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, RefObject } from "react";
 import { PlayerRef } from "@remotion/player";
 import { Project } from "./Video";
+import { lineAppearance } from "./text-appearance.mjs";
 import {
   CaptionBounds,
   constrainPosition,
@@ -68,6 +69,16 @@ export function PreviewOverlay({
           base.height / project.height,
         );
         if (words.length && scale > 0) {
+          const padding = Math.max(
+            ...[
+              lineAppearance(project.style),
+              lineAppearance(project.style, true),
+            ].map((appearance) =>
+              appearance.outlineEnabled && appearance.outlineOpacity > 0
+                ? appearance.outlineSize / 2 + 1
+                : 1,
+            ),
+          );
           const width =
             Math.max(...words.map((r) => r.right)) -
             Math.min(...words.map((r) => r.left));
@@ -75,8 +86,8 @@ export function PreviewOverlay({
             Math.max(...words.map((r) => r.bottom)) -
             Math.min(...words.map((r) => r.top));
           onBounds?.({
-            halfWidth: (width / (scale * project.width)) * 50 + 0.6,
-            halfHeight: (height / (scale * project.height)) * 50 + 0.6,
+            halfWidth: ((width / scale / 2 + padding) / project.width) * 100,
+            halfHeight: ((height / scale / 2 + padding) / project.height) * 100,
             left:
               ((base.left +
                 (base.width - project.width * scale) / 2 +
@@ -84,7 +95,7 @@ export function PreviewOverlay({
                 Math.min(...words.map((r) => r.left))) /
                 (scale * project.width)) *
                 100 +
-              0.3,
+              (padding / project.width) * 100,
             right:
               ((Math.max(...words.map((r) => r.right)) -
                 (base.left +
@@ -92,7 +103,7 @@ export function PreviewOverlay({
                   ((project.style.x ?? 50) / 100) * project.width * scale)) /
                 (scale * project.width)) *
                 100 +
-              0.3,
+              (padding / project.width) * 100,
             top:
               ((base.top +
                 (base.height - project.height * scale) / 2 +
@@ -100,7 +111,7 @@ export function PreviewOverlay({
                 Math.min(...words.map((r) => r.top))) /
                 (scale * project.height)) *
                 100 +
-              0.3,
+              (padding / project.height) * 100,
             bottom:
               ((Math.max(...words.map((r) => r.bottom)) -
                 (base.top +
@@ -108,7 +119,7 @@ export function PreviewOverlay({
                   (project.style.y / 100) * project.height * scale)) /
                 (scale * project.height)) *
                 100 +
-              0.3,
+              (padding / project.height) * 100,
           });
         }
         setBox({

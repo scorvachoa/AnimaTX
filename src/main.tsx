@@ -1,3 +1,4 @@
+import { toggleCoverSelection } from "./cover-lines.mjs";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import type { CaptionBounds } from "./caption-position.mjs";
 import { createRoot } from "react-dom/client";
@@ -22,13 +23,13 @@ import { coverDefaults } from "./cover.mjs";
 import { DeleteProjectModal } from "./DeleteProjectModal";
 import { PreviewOverlay } from "./PreviewOverlay";
 import { PreviewViewport } from "./PreviewViewport";
-import { WordStylePanel } from "./WordStylePanel";
 import { SubtitleFiles } from "./SubtitleFiles";
 import { applyImportedSubtitles } from "./subtitle-files.mjs";
 import { CaptionBlocksPanel } from "./CaptionBlocksPanel";
 import "./themes.css";
 import { recordHistory, History } from "./project-history.mjs";
 import { readApiResponse } from "./api-response.mjs";
+import { insertWordAt } from "./insert-word.mjs";
 async function api(url: string, options?: RequestInit) {
   const r = await fetch("/api" + url, options);
   return readApiResponse(r);
@@ -74,6 +75,16 @@ function App() {
   const setSubtitleTab = (value: string) => setEditorUi("subtitleTab", value);
   const [guideEnabled, setGuideEnabled] = useState(true);
   const [coverGuideEnabled, setCoverGuideEnabled] = useState(true);
+  const [selectedCoverLine, setSelectedCoverLine] = useState<number[]>([]);
+  useEffect(() => {
+    setSelectedCoverLine([]);
+  }, [p?.id, p?.cover?.template]);
+  const selectCoverLine = (index: number | null, additive = false) => {
+    setSelectedCoverLine((current) =>
+      toggleCoverSelection(current, index, additive),
+    );
+    if (index !== null) setEditorUi("coverSection", "title");
+  };
   const [coverTitleBounds, setCoverTitleBounds] = useState<CaptionBounds>({
     halfWidth: 20,
     halfHeight: 5,
@@ -105,7 +116,6 @@ function App() {
   useEffect(() => {
     setCaptionBounds({ halfWidth: 25, halfHeight: 5 });
   }, [p?.id]);
-  const [styledWordId, setStyledWordId] = useState("");
   const history = useRef<History>({ past: [], future: [], group: "", at: 0 });
   const [historyVersion, setHistoryVersion] = useState(0),
     [saveStatus, setSaveStatus] = useState("saved");
@@ -137,10 +147,14 @@ function App() {
   }, [panel, subtitleTab, textEditRequest]);
   const player = useRef<PlayerRef>(null);
   useEffect(() => {
+    if (busy) player.current?.pause();
+  }, [busy]);
+  useEffect(() => {
     const togglePlayback = (event: KeyboardEvent) => {
       if (
         !p ||
         !player.current ||
+        busy ||
         event.code !== "Space" ||
         event.ctrlKey ||
         event.altKey ||
@@ -164,7 +178,7 @@ function App() {
     };
     window.addEventListener("keydown", togglePlayback, true);
     return () => window.removeEventListener("keydown", togglePlayback, true);
-  }, [p?.id, showGeminiSettings]);
+  }, [p?.id, showGeminiSettings, busy]);
   useEffect(() => {
     api("/projects")
       .then(setProjects)
@@ -178,6 +192,27 @@ function App() {
     setDirty(true);
     setDownload("");
   };
+  useEffect(() => {
+    const target = player.current;
+    const current = projectRef.current;
+    if (panel !== "cover" || busy || !target || !current) return;
+    // Reopen the saved thumbnail without replacing it with the video's last position.
+    target.pause();
+    target.seekTo(Math.floor((current.cover?.time ?? coverDefaults.time) * 30));
+    const update = ({ detail }: { detail: { frame: number } }) => {
+      const latest = projectRef.current;
+      if (!latest || latest.id !== current.id) return;
+      const time = Math.max(
+        0,
+        Math.min(detail.frame / 30, latest.duration - 1 / 30),
+      );
+      if (Math.abs((latest.cover?.time ?? coverDefaults.time) - time) < 0.001)
+        return;
+      edit({ ...latest, cover: { ...coverDefaults, ...latest.cover, time } });
+    };
+    target.addEventListener("frameupdate", update);
+    return () => target.removeEventListener("frameupdate", update);
+  }, [panel, p?.id, busy]);
   async function save() {
     const snapshot = projectRef.current;
     if (!snapshot) return;
@@ -373,11 +408,25 @@ function App() {
       setBusy(false);
     }
   }
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [cancellingJob, setCancellingJob] = useState(false);
+  async function cancelActiveJob() {
+    if (!activeJobId || cancellingJob) return;
+    setCancellingJob(true);
+    try {
+      await api("/jobs/" + activeJobId + "/cancel", { method: "POST" });
+    } catch (error) {
+      setError((error as Error).message);
+      setCancellingJob(false);
+    }
+  }
   async function job(action: string) {
     if (!p) return;
     setBusy(true);
     setError("");
     setDownload("");
+    setMessage("En cola · esperando recursos…");
+    setCancellingJob(false);
     try {
       await save();
       const { id } = await api(`/projects/${p.id}/${action}`, {
@@ -385,10 +434,12 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language }),
       });
+      setActiveJobId(id);
       while (true) {
         const j = await api("/jobs/" + id);
         setMessage(j.message);
         if (j.status === "error") throw Error(j.message);
+        if (j.status === "cancelled") break;
         if (j.status === "done") {
           if (j.project) {
             edit(j.project);
@@ -403,6 +454,32 @@ function App() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setActiveJobId(null);
+      setCancellingJob(false);
+    }
+  }
+  function addWord(index: number, referenceId?: string) {
+    if (!p || busy) return;
+    try {
+      const result = insertWordAt(
+        p.words,
+        index,
+        p.duration,
+        crypto.randomUUID(),
+        referenceId,
+      );
+      player.current?.pause();
+      edit({ ...p, words: result.words });
+      setSubtitleTab("text");
+      setTextEditRequest({ id: result.word.id });
+      setError("");
+      setMessage(
+        result.adjustedId
+          ? "Palabra insertada. Se repartió el tiempo con una palabra vecina."
+          : "Palabra insertada.",
+      );
+    } catch (e) {
+      setError((e as Error).message);
     }
   }
   function updateWord(id: string, patch: Partial<Word>) {
@@ -646,6 +723,8 @@ function App() {
             <>
               {panel === "cover" && (
                 <CoverPanel
+                  selectedLine={selectedCoverLine}
+                  onSelectLine={selectCoverLine}
                   section={editorUi.coverSection}
                   onSectionChange={(value) =>
                     setEditorUi("coverSection", value)
@@ -655,20 +734,6 @@ function App() {
                   project={p}
                   disabled={busy}
                   onChange={(cover) => edit({ ...p, cover })}
-                  onCapture={() => {
-                    player.current?.pause();
-                    edit({
-                      ...p,
-                      cover: {
-                        ...coverDefaults,
-                        ...p.cover,
-                        time: Math.min(
-                          Math.max(0, p.duration - 1 / 30),
-                          (player.current?.getCurrentFrame() ?? 0) / 30,
-                        ),
-                      },
-                    });
-                  }}
                 />
               )}
               {panel === "styles" && (
@@ -749,27 +814,21 @@ function App() {
                   <PanelTabs
                     label="Opciones de subtítulos"
                     items={[
-                      ["text", "Texto"],
+                      ["text", "Texto y tiempos"],
                       ["phrases", "Frases"],
-                      ["timing", "Tiempos"],
                     ]}
                     value={subtitleTab}
                     onChange={setSubtitleTab}
                     panelIds={{
                       text: "subtitle-content",
                       phrases: "subtitle-content",
-                      timing: "subtitle-content",
                     }}
                   />
                   <div
                     id="subtitle-content"
                     role="tabpanel"
                     aria-label={
-                      subtitleTab === "text"
-                        ? "Texto"
-                        : subtitleTab === "phrases"
-                          ? "Frases"
-                          : "Tiempos"
+                      subtitleTab === "phrases" ? "Frases" : "Texto y tiempos"
                     }
                   >
                     <div hidden={subtitleTab !== "text"}>
@@ -798,17 +857,6 @@ function App() {
                         edit(applyImportedSubtitles(p, words))
                       }
                     />
-                    <div hidden={subtitleTab !== "text"}>
-                      <WordStylePanel
-                        project={p}
-                        selected={styledWordId}
-                        disabled={busy}
-                        onSelect={setStyledWordId}
-                        onChange={(word) =>
-                          updateWord(word.id, { style: word.style })
-                        }
-                      />
-                    </div>
                     <div hidden={subtitleTab !== "phrases"}>
                       <CaptionBlocksPanel
                         key={`blocks-${p.id}`}
@@ -827,7 +875,7 @@ function App() {
                         }
                       />
                     </div>
-                    <div hidden={subtitleTab !== "timing"}>
+                    <div hidden={subtitleTab !== "text"}>
                       <CaptionSyncControl
                         style={p.style}
                         disabled={busy}
@@ -836,23 +884,20 @@ function App() {
                     </div>
                     <div
                       hidden={subtitleTab === "phrases"}
-                      className={`transcript-editor transcript-${subtitleTab}`}
+                      className="transcript-editor transcript-unified"
                     >
                       {" "}
                       <div className="section-title">
-                        {subtitleTab === "timing"
-                          ? "TIEMPOS POR PALABRA"
-                          : "PALABRAS"}{" "}
-                        {subtitleTab === "timing" && <span>segundos</span>}
+                        PALABRAS <span>tiempos en segundos</span>
                       </div>
-                      <div className="word-head">
-                        <span>PALABRA</span>
-                        <span>INICIO</span>
-                        <span>FIN</span>
+                      <div className="word-head" aria-hidden="true">
+                        <span>Palabra</span>
+                        <span>Inicio</span>
+                        <span>Fin</span>
                         <span />
                       </div>
                       <fieldset disabled={busy} className="word-list">
-                        {p.words.map((w) => (
+                        {p.words.map((w, index) => (
                           <div
                             className={`word ${textEditRequest?.id === w.id ? "word-highlighted" : ""}`}
                             key={w.id}
@@ -865,7 +910,6 @@ function App() {
                               aria-label="Palabra"
                               value={w.text}
                               onFocus={() => {
-                                setStyledWordId(w.id);
                                 player.current?.seekTo(
                                   Math.floor(w.start * 30),
                                 );
@@ -874,37 +918,55 @@ function App() {
                                 updateWord(w.id, { text: e.target.value })
                               }
                             />
-                            <input
-                              aria-label="Inicio"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={w.start}
-                              onChange={(e) =>
-                                updateWord(w.id, { start: +e.target.value })
-                              }
-                            />
-                            <input
-                              aria-label="Fin"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={w.end}
-                              onChange={(e) =>
-                                updateWord(w.id, { end: +e.target.value })
-                              }
-                            />
-                            <button
-                              aria-label="Eliminar palabra"
-                              onClick={() =>
-                                edit({
-                                  ...p,
-                                  words: p.words.filter((x) => x.id !== w.id),
-                                })
-                              }
-                            >
-                              ×
-                            </button>
+                            <label className="word-time">
+                              <input
+                                aria-label="Inicio"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={w.start}
+                                onChange={(e) =>
+                                  updateWord(w.id, { start: +e.target.value })
+                                }
+                              />
+                            </label>
+                            <label className="word-time">
+                              <input
+                                aria-label="Fin"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={w.end}
+                                onChange={(e) =>
+                                  updateWord(w.id, { end: +e.target.value })
+                                }
+                              />
+                            </label>
+                            <div className="word-actions">
+                              {subtitleTab === "text" && (
+                                <button
+                                  type="button"
+                                  className="insert-word-button"
+                                  aria-label={`Insertar palabra después de ${w.text}`}
+                                  title="Agregar palabra debajo"
+                                  onClick={() => addWord(index + 1, w.id)}
+                                >
+                                  ＋
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                aria-label="Eliminar palabra"
+                                onClick={() =>
+                                  edit({
+                                    ...p,
+                                    words: p.words.filter((x) => x.id !== w.id),
+                                  })
+                                }
+                              >
+                                ×
+                              </button>
+                            </div>
                           </div>
                         ))}
                         {!p.words.length && (
@@ -916,27 +978,11 @@ function App() {
                       <button
                         disabled={busy}
                         className="add"
-                        onClick={() => {
-                          const start = p.words.at(-1)?.end || 0;
-                          if (start >= p.duration)
-                            return setError(
-                              "No queda tiempo al final. Ajusta los tiempos existentes.",
-                            );
-                          edit({
-                            ...p,
-                            words: [
-                              ...p.words,
-                              {
-                                id: crypto.randomUUID(),
-                                text: "Palabra",
-                                start,
-                                end: Math.min(p.duration, start + 0.5),
-                              },
-                            ],
-                          });
-                        }}
+                        onClick={() =>
+                          addWord(p.words.length, p.words.at(-1)?.id)
+                        }
                       >
-                        ＋ Agregar palabra
+                        ＋ Agregar al final
                       </button>
                     </div>
                   </div>
@@ -967,6 +1013,15 @@ function App() {
                 <div className="status" role="status">
                   <span className={busy ? "pulse" : ""}>●</span>
                   {message}
+                  {activeJobId && (
+                    <button
+                      type="button"
+                      disabled={cancellingJob}
+                      onClick={cancelActiveJob}
+                    >
+                      {cancellingJob ? "Cancelando…" : "Cancelar"}
+                    </button>
+                  )}
                 </div>
               )}
               {error && (
@@ -986,6 +1041,8 @@ function App() {
               <div className="stage-canvas">
                 {panel === "cover" && (
                   <CoverPreview
+                    selectedLine={selectedCoverLine}
+                    onSelectLine={selectCoverLine}
                     safeGuide={coverGuideEnabled}
                     onGuideChange={setCoverGuideEnabled}
                     onBounds={measureCoverTitle}

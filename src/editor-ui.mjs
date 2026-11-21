@@ -3,14 +3,14 @@ export const editorUiDefaults = {
   subtitleTab: "text",
   styleSection: "text",
   selectedLine: "upper",
-  coverSection: "frame",
+  coverSection: "template",
 };
 const choices = {
   styleTab: ["templates", "customize"],
-  subtitleTab: ["text", "phrases", "timing"],
-  styleSection: ["layout", "text", "animation", "position"],
+  subtitleTab: ["text", "phrases"],
+  styleSection: ["layout", "text", "position"],
   selectedLine: ["upper", "lower"],
-  coverSection: ["frame", "template", "title", "crop"],
+  coverSection: ["template", "title", "crop"],
 };
 export function normalizeEditorUi(value) {
   return Object.fromEntries(

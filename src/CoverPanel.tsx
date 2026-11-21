@@ -1,3 +1,6 @@
+import { lineAppearance } from "./text-appearance.mjs";
+import { LineTextControls } from "./LineTextControls";
+import { getCoverLines, CoverLine } from "./cover-lines.mjs";
 import React, { useState } from "react";
 import { PanelTabs } from "./PanelTabs";
 import { Project } from "./Video";
@@ -16,27 +19,52 @@ import {
 } from "./cover.mjs";
 export function CoverPanel({
   project,
+  selectedLine,
+  onSelectLine,
   disabled,
   onChange,
-  onCapture,
   safeGuide = false,
   titleBounds = { halfWidth: 20, halfHeight: 5 },
   section: persistedSection,
   onSectionChange,
 }: {
   project: Project;
+  selectedLine: number[];
+  onSelectLine: (index: number | null, additive?: boolean) => void;
   disabled: boolean;
   onChange: (cover: CoverSettings) => void;
-  onCapture: () => void;
   safeGuide?: boolean;
   titleBounds?: CaptionBounds;
   section?: string;
   onSectionChange?: (value: string) => void;
 }) {
-  const [localSection, setLocalSection] = useState("frame");
+  const [localSection, setLocalSection] = useState("template");
   const section = persistedSection ?? localSection,
     setSection = onSectionChange ?? setLocalSection;
   const c = { ...coverDefaults, ...project.cover };
+  const lines = getCoverLines(c);
+  const activeLine =
+    selectedLine.filter((index) => index < lines.length).at(-1) ?? null;
+  const updateLine = (index: number, patch: Partial<CoverLine>) => {
+    const next = lines.map((line, i) =>
+      i === index ? { ...line, ...patch } : line,
+    );
+    onChange({
+      ...c,
+      lines: next,
+      title: next.map((line) => line.text).join("\n"),
+    });
+  };
+  const updateSelection = (patch: Partial<CoverLine>) => {
+    const next = lines.map((line, index) =>
+      selectedLine.includes(index) ? { ...line, ...patch } : line,
+    );
+    onChange({
+      ...c,
+      lines: next,
+      title: next.map((line) => line.text).join("\n"),
+    });
+  };
   const set = (key: keyof CoverSettings, value: unknown) =>
     onChange({ ...c, [key]: value });
   const position = { x: c.x, y: c.y };
@@ -145,7 +173,6 @@ export function CoverPanel({
       <PanelTabs
         label="Opciones de miniatura"
         items={[
-          ["frame", "Fotograma"],
           ["template", "Plantilla"],
           ["title", "Título"],
           ["crop", "Encuadre"],
@@ -153,29 +180,11 @@ export function CoverPanel({
         value={section}
         onChange={setSection}
         panelIds={{
-          frame: "cover-frame",
           template: "cover-template",
           title: "cover-title",
           crop: "cover-crop",
         }}
       />
-      <div
-        id="cover-frame"
-        role="tabpanel"
-        aria-label="Fotograma"
-        hidden={section !== "frame"}
-      >
-        <button type="button" className="cover-capture" onClick={onCapture}>
-          ▣ Usar fotograma actual del video
-        </button>
-        {range(
-          "time",
-          "Instante (s)",
-          0,
-          Math.max(0, project.duration - 1 / 30),
-          1 / 30,
-        )}
-      </div>
       <div
         id="cover-template"
         role="tabpanel"
@@ -190,23 +199,37 @@ export function CoverPanel({
               className={`cover-preset-card cover-preset-${t.id}`}
               aria-label={`Aplicar portada ${t.name}`}
               aria-pressed={c.template === t.id}
-              onClick={() => onChange(applyCoverTemplate(c, t))}
+              onClick={() => {
+                onSelectLine(null);
+                onChange(applyCoverTemplate(c, t));
+              }}
             >
-              <span
-                className="cover-preset-sample"
-                aria-hidden="true"
-                style={{ fontFamily: t.style.fontFamily, color: t.style.color }}
-              >
-                <span
-                  style={{
-                    background: t.style.textBackground
-                      ? t.style.background
-                      : undefined,
-                  }}
-                >
-                  Tu próxima
-                  <br />
-                  historia
+              <span className="cover-preset-sample" aria-hidden="true">
+                {t.style.lines?.map((line, i) => (
+                  <span
+                    key={i}
+                    className="cover-preset-line"
+                    style={{
+                      fontFamily: line.fontFamily,
+                      fontSize: line.fontSize / 6.5,
+                      color: line.color,
+                      fontWeight: line.bold === false ? 400 : 900,
+                      fontStyle: line.italic ? "italic" : "normal",
+                      letterSpacing: (line.letterSpacing ?? 0) / 6.5,
+                      background: t.style.textBackground
+                        ? t.style.background
+                        : undefined,
+                      textShadow: line.shadowEnabled
+                        ? "0 1px 4px #0009"
+                        : "none",
+                    }}
+                  >
+                    {line.text}
+                  </span>
+                ))}
+                <span className="cover-line-count">
+                  {t.style.lines?.length}{" "}
+                  {t.style.lines?.length === 1 ? "línea" : "líneas"}
                 </span>
               </span>
               <span className="cover-preset-name">{t.name}</span>
@@ -220,51 +243,122 @@ export function CoverPanel({
         aria-label="Título"
         hidden={section !== "title"}
       >
-        <textarea
-          aria-label="Título de portada"
-          maxLength={160}
-          rows={4}
-          value={c.title}
-          onChange={(e) => set("title", e.target.value)}
-          placeholder="Escribe tu título"
-        />
-        <label className="cover-field">
-          Tipografía
-          <select
-            value={c.fontFamily}
-            onChange={(e) => set("fontFamily", e.target.value)}
-          >
-            {["Impact", "Arial", "Georgia", "Segoe Print"].map((font) => (
-              <option key={font}>{font}</option>
-            ))}
-          </select>
-        </label>
-        {range("fontSize", "Tamaño", 24, 180)}
-        <div className="cover-colors">
-          {(["color", "outline", "background"] as const).map((key, i) => (
-            <label key={key}>
-              {["Texto", "Borde", "Fondo"][i]}
-              <input
-                type="color"
-                value={c[key]}
-                onChange={(e) => set(key, e.target.value)}
-              />
-            </label>
+        <div
+          className="cover-layer-list"
+          role="group"
+          aria-label="Textos de miniatura"
+        >
+          {lines.map((line, i) => (
+            <button
+              type="button"
+              key={i}
+              aria-pressed={selectedLine.includes(i)}
+              onClick={(event) =>
+                onSelectLine(i, event.ctrlKey || event.metaKey)
+              }
+              title={line.text || "Texto vacío"}
+            >
+              <span className="cover-layer-number">{i + 1}</span>
+              <span>{line.text || "Texto vacío"}</span>
+            </button>
           ))}
         </div>
-        <label className="cover-checkbox">
-          <input
-            type="checkbox"
-            checked={c.textBackground}
-            onChange={(e) => set("textBackground", e.target.checked)}
-          />{" "}
-          Fondo del título
-        </label>
-        {positionControl("y")}
-        {positionControl("x")}
-        {safeGuide && (
-          <span className="caption-safe-badge">Zona segura activa</span>
+        {activeLine === null ? (
+          <div className="cover-selection-empty">
+            Selecciona un texto en la vista previa
+          </div>
+        ) : (
+          <>
+            <div className="cover-selected-heading">
+              <strong>
+                {selectedLine.length > 1
+                  ? selectedLine.length + " textos seleccionados"
+                  : "Texto seleccionado"}
+              </strong>
+              <button
+                type="button"
+                aria-label="Deseleccionar texto"
+                onClick={() => onSelectLine(null)}
+              >
+                ×
+              </button>
+            </div>
+            {selectedLine.length === 1 && (
+              <label className="cover-line-input active">
+                <span>Texto</span>
+                <input
+                  type="text"
+                  aria-label={"Texto de línea " + (activeLine + 1)}
+                  value={lines[activeLine].text}
+                  maxLength={Math.max(
+                    0,
+                    160 -
+                      (lines.length - 1) -
+                      lines.reduce(
+                        (n, item, index) =>
+                          n + (index === activeLine ? 0 : item.text.length),
+                        0,
+                      ),
+                  )}
+                  onChange={(event) =>
+                    updateLine(activeLine, { text: event.target.value })
+                  }
+                />
+              </label>
+            )}
+            {selectedLine.length > 1 && (
+              <p className="cover-multi-note">
+                Los cambios de estilo se aplican a todos. Se muestran los
+                valores del último texto seleccionado.
+              </p>
+            )}
+            <div className="settings cover-line-settings">
+              <LineTextControls
+                staticImage
+                second={false}
+                lineLabel={"línea " + (activeLine + 1)}
+                style={{
+                  ...project.style,
+                  ...lines[activeLine],
+                  ...lineAppearance(lines[activeLine]),
+                }}
+                onSet={(key, value) => updateSelection({ [key]: value })}
+              />
+              <button
+                type="button"
+                onClick={() => updateSelection({ offsetX: 0, offsetY: 0 })}
+              >
+                Restablecer posición del texto
+              </button>
+            </div>
+          </>
         )}
+        <section className="cover-block-settings">
+          <h4>Bloque completo</h4>
+          <div className="cover-colors">
+            <label>
+              Fondo
+              <input
+                type="color"
+                value={c.background}
+                onChange={(event) => set("background", event.target.value)}
+              />
+            </label>
+          </div>
+          <label className="cover-checkbox">
+            <input
+              type="checkbox"
+              checked={c.textBackground}
+              onChange={(e) => set("textBackground", e.target.checked)}
+            />{" "}
+            Fondo del título
+          </label>
+          {positionControl("y")}
+          {positionControl("x")}
+          {safeGuide && (
+            <span className="caption-safe-badge">Zona segura activa</span>
+          )}
+        </section>
       </div>
       <div
         id="cover-crop"

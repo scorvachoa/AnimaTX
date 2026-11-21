@@ -1,3 +1,5 @@
+import { alignmentMemoryBudget } from "./resources.mjs";
+import { spokenScriptToken } from "./spoken-numbers.mjs";
 const vocab = {
   "'": 28,
   a: 4,
@@ -27,18 +29,14 @@ const vocab = {
   y: 19,
   z: 26,
 };
-export function scriptTokens(script) {
+export function scriptTokens(script, language = "es") {
   const words = script.trim().split(/\s+/u).filter(Boolean);
   if (!words.length || words.length > 2000)
     throw Error("El guion debe tener entre 1 y 2000 palabras.");
   const tokens = [],
     owners = [];
   for (let i = 0; i < words.length; i++) {
-    if (/\d/.test(words[i]))
-      throw Error(
-        "Para alinear con el audio, escribe los números con letras en el guion.",
-      );
-    const text = words[i]
+    const text = spokenScriptToken(words[i], language)
       .normalize("NFKD")
       .replace(/\p{M}/gu, "")
       .toLowerCase()
@@ -55,10 +53,20 @@ export function scriptTokens(script) {
   }
   return { words, tokens, owners };
 }
-export function alignCTC(logits, frames, classes, script, duration) {
-  const { words, tokens, owners } = scriptTokens(script),
+export function alignCTC(
+  logits,
+  frames,
+  classes,
+  script,
+  duration,
+  language = "es",
+) {
+  const { words, tokens, owners } = scriptTokens(script, language),
     states = tokens.length * 2 + 1;
-  if (frames * states > 260000000)
+  if (
+    frames * states > 260000000 ||
+    Math.ceil((frames * states) / 4) > alignmentMemoryBudget()
+  )
     throw Error(
       "El guion es demasiado largo para alinear en este equipo. Usa un fragmento más corto.",
     );
@@ -73,11 +81,12 @@ export function alignCTC(logits, frames, classes, script, duration) {
     for (let c = 0; c < classes; c++)
       logp[row + c] = logits[row + c] - normalizer;
   }
-  const dirs = new Uint8Array(frames * states);
+  const dirs = new Uint8Array(Math.ceil((frames * states) / 4));
   let prev = new Float64Array(states).fill(-Infinity);
   prev[0] = 0;
+  let next = new Float64Array(states);
   for (let t = 0; t < frames; t++) {
-    const next = new Float64Array(states).fill(-Infinity);
+    next.fill(-Infinity);
     for (let s = 0; s < Math.min(states, 2 * t + 2); s++) {
       const token = s % 2 ? tokens[(s - 1) / 2] : 0;
       let score = prev[s],
@@ -96,9 +105,10 @@ export function alignCTC(logits, frames, classes, script, duration) {
         step = 2;
       }
       next[s] = score + logp[t * classes + token];
-      dirs[t * states + s] = step;
+      const index = t * states + s;
+      dirs[index >> 2] |= step << ((index & 3) * 2);
     }
-    prev = next;
+    [prev, next] = [next, prev];
   }
   let state = prev[states - 1] > prev[states - 2] ? states - 1 : states - 2;
   if (!Number.isFinite(prev[state]))
@@ -120,7 +130,8 @@ export function alignCTC(logits, frames, classes, script, duration) {
       span.score += Math.exp(logp[t * classes + tokens[tokenIndex]]);
       span.count++;
     }
-    state -= dirs[t * states + state];
+    const index = t * states + state;
+    state -= (dirs[index >> 2] >> ((index & 3) * 2)) & 3;
   }
   const aligned = words.map((text, i) => {
     const span = spans[i];

@@ -1,5 +1,6 @@
 import { animations } from "../src/text-animations.mjs";
 import { validateCover } from "../src/cover.mjs";
+import { validateTextAppearance } from "../src/text-appearance.mjs";
 const animationIds = animations.map(([id]) => id);
 export function validateProject(p) {
   validateCover(p?.cover, p?.duration);
@@ -48,6 +49,7 @@ export function validateProject(p) {
         throw Error("Mayúsculas de palabra inválidas");
     }
   const s = p.style;
+  if (s) validateTextAppearance(s);
   if (
     s?.hidePunctuation !== undefined &&
     typeof s.hidePunctuation !== "boolean"

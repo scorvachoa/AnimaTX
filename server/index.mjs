@@ -1,3 +1,14 @@
+import {
+  resourcePolicy,
+  requireFreeMemory,
+  limitedFfmpegArgs,
+  lowerPriority,
+} from "./resources.mjs";
+import {
+  probeMedia,
+  originalExportSettings,
+  originalAudioMuxArgs,
+} from "./original-media.mjs";
 import express from "express";
 import multer from "multer";
 import fs from "node:fs/promises";
@@ -8,7 +19,11 @@ import { spawn } from "node:child_process";
 import { Worker } from "node:worker_threads";
 import ffmpeg from "ffmpeg-static";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import {
+  renderMedia,
+  selectComposition,
+  makeCancelSignal,
+} from "@remotion/renderer";
 import { validateProject } from "./validation.mjs";
 import { createJobLock } from "./job-lock.mjs";
 import { deleteProjectFiles } from "./delete-project.mjs";
@@ -22,6 +37,9 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   data = path.join(root, "data");
 await fs.mkdir(data, { recursive: true });
+const port = Number(process.env.ANIMATX_PORT ?? 4310);
+if (!Number.isInteger(port) || port < 1 || port > 65535)
+  throw Error("Puerto inválido");
 const app = express();
 app.use(express.json({ limit: "3mb" }));
 app.use((req, res, next) => {
@@ -45,6 +63,8 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024, files: 1 },
 });
 const jobs = new Map();
+const jobControllers = new Map();
+lowerPriority(process.pid);
 const privateDir = path.join(root, ".local");
 const configFile = path.join(privateDir, "gemini.json");
 async function geminiConfig() {
@@ -193,81 +213,89 @@ app.get("/api/projects/:id/assets", async (req, res, next) => {
       assetJobs.set(
         p.id,
         (async () => {
-          const file = path.join(dir, "waveform.f32");
-          let peaks = [],
-            hasAudio = true;
+          const release = await jobLock.acquire();
           try {
+            if (deletingProjects.has(p.id))
+              throw Error("El proyecto se está eliminando.");
+            requireFreeMemory("assets");
+            const file = path.join(dir, "waveform.f32");
+            let peaks = [],
+              hasAudio = true;
+            try {
+              await run([
+                "-y",
+                "-i",
+                path.join(dir, "video.mp4"),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "8000",
+                "-f",
+                "f32le",
+                file,
+              ]);
+              const b = await fs.readFile(file),
+                samples = new Float32Array(
+                  b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
+                ),
+                bins = Math.min(2000, Math.ceil(p.duration * 30));
+              for (let i = 0; i < bins; i++) {
+                let peak = 0;
+                for (
+                  let j = Math.floor((i * samples.length) / bins);
+                  j < Math.floor(((i + 1) * samples.length) / bins);
+                  j++
+                )
+                  peak = Math.max(peak, Math.abs(samples[j]));
+                peaks.push(peak);
+              }
+            } catch {
+              hasAudio = false;
+            } finally {
+              await fs.unlink(file).catch(() => {});
+            }
+            const thumbnailCount = Math.max(
+              12,
+              Math.min(120, Math.ceil(p.duration * 2)),
+            );
+            const thumbnailWidth = Math.max(
+              32,
+              Math.min(180, 2 * Math.round((48 * p.width) / p.height)),
+            );
+            const thumbnailHeight = 96,
+              thumbnailColumns = 10,
+              thumbnailRows = Math.ceil(thumbnailCount / thumbnailColumns);
             await run([
               "-y",
               "-i",
               path.join(dir, "video.mp4"),
-              "-vn",
-              "-ac",
+              "-vf",
+              `tpad=stop_mode=clone:stop_duration=1,fps=${thumbnailCount / p.duration}:start_time=0,trim=end_frame=${thumbnailCount},scale=${thumbnailWidth}:${thumbnailHeight}:force_original_aspect_ratio=decrease,pad=${thumbnailWidth}:${thumbnailHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,tile=${thumbnailColumns}x${thumbnailRows}`,
+              "-frames:v",
               "1",
-              "-ar",
-              "8000",
-              "-f",
-              "f32le",
-              file,
+              "-update",
+              "1",
+              "-q:v",
+              "2",
+              path.join(dir, "thumbnails-v2.jpg"),
             ]);
-            const b = await fs.readFile(file),
-              samples = new Float32Array(
-                b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
-              ),
-              bins = Math.min(2000, Math.ceil(p.duration * 30));
-            for (let i = 0; i < bins; i++) {
-              let peak = 0;
-              for (
-                let j = Math.floor((i * samples.length) / bins);
-                j < Math.floor(((i + 1) * samples.length) / bins);
-                j++
-              )
-                peak = Math.max(peak, Math.abs(samples[j]));
-              peaks.push(peak);
-            }
-          } catch {
-            hasAudio = false;
+            const result = {
+              peaks,
+              hasAudio,
+              thumbnails: `/media/${p.id}/thumbnails-v2.jpg`,
+              thumbnailVersion: 2,
+              thumbnailWidth,
+              thumbnailHeight,
+              thumbnailColumns,
+              thumbnailRows,
+              thumbnailCount,
+            };
+            await fs.writeFile(cache, JSON.stringify(result));
+            return result;
           } finally {
-            await fs.unlink(file).catch(() => {});
+            release();
           }
-          const thumbnailCount = Math.max(
-            12,
-            Math.min(120, Math.ceil(p.duration * 2)),
-          );
-          const thumbnailWidth = Math.max(
-            32,
-            Math.min(180, 2 * Math.round((48 * p.width) / p.height)),
-          );
-          const thumbnailHeight = 96,
-            thumbnailColumns = 10,
-            thumbnailRows = Math.ceil(thumbnailCount / thumbnailColumns);
-          await run([
-            "-y",
-            "-i",
-            path.join(dir, "video.mp4"),
-            "-vf",
-            `tpad=stop_mode=clone:stop_duration=1,fps=${thumbnailCount / p.duration}:start_time=0,trim=end_frame=${thumbnailCount},scale=${thumbnailWidth}:${thumbnailHeight}:force_original_aspect_ratio=decrease,pad=${thumbnailWidth}:${thumbnailHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,tile=${thumbnailColumns}x${thumbnailRows}`,
-            "-frames:v",
-            "1",
-            "-update",
-            "1",
-            "-q:v",
-            "2",
-            path.join(dir, "thumbnails-v2.jpg"),
-          ]);
-          const result = {
-            peaks,
-            hasAudio,
-            thumbnails: `/media/${p.id}/thumbnails-v2.jpg`,
-            thumbnailVersion: 2,
-            thumbnailWidth,
-            thumbnailHeight,
-            thumbnailColumns,
-            thumbnailRows,
-            thumbnailCount,
-          };
-          await fs.writeFile(cache, JSON.stringify(result));
-          return result;
         })().finally(() => assetJobs.delete(p.id)),
       );
     res.json(await assetJobs.get(p.id));
@@ -282,15 +310,22 @@ const write = async (p) => {
   await fs.writeFile(temp, JSON.stringify(p, null, 2));
   await fs.rename(temp, path.join(folder(p.id), "project.json"));
 };
-function run(args) {
+function run(args, signal) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpeg, args, { windowsHide: true });
+    if (signal?.aborted) return reject(Error("Operación cancelada."));
+    const child = spawn(ffmpeg, limitedFfmpegArgs(args), { windowsHide: true });
+    child.once("spawn", () => lowerPriority(child.pid));
+    const abort = () => child.kill();
+    signal?.addEventListener("abort", abort, { once: true });
     let output = "";
     child.stderr.on("data", (d) => (output = (output + d).slice(-16000)));
     child.on("error", reject);
-    child.on("close", (code) =>
-      code === 0 ? resolve(output) : reject(Error(output.slice(-1200))),
-    );
+    child.on("close", (code) => {
+      signal?.removeEventListener("abort", abort);
+      if (signal?.aborted) reject(Error("Operación cancelada."));
+      else if (code === 0) resolve(output);
+      else reject(Error(output.slice(-1200)));
+    });
   });
 }
 app.get("/api/projects", async (req, res, next) => {
@@ -307,15 +342,24 @@ app.get("/api/projects", async (req, res, next) => {
   }
 });
 app.post("/api/projects", upload.single("video"), async (req, res, next) => {
-  let dir;
+  let dir, release;
   try {
     if (!req.file) throw Error("Selecciona un video");
+    release = await jobLock.acquire();
+    requireFreeMemory("import");
     const id = randomUUID();
     dir = folder(id);
     await fs.mkdir(dir);
     await fs.rename(req.file.path, path.join(dir, "source"));
+    const sourceMedia = await probeMedia(path.join(dir, "source"));
+    if (sourceMedia.duration > 180.1)
+      throw Error("El límite del MVP es 3 minutos.");
     await run([
       "-y",
+      "-threads",
+      "2",
+      "-filter_threads",
+      "1",
       "-i",
       path.join(dir, "source"),
       "-t",
@@ -326,6 +370,8 @@ app.post("/api/projects", upload.single("video"), async (req, res, next) => {
       "30",
       "-c:v",
       "libx264",
+      "-threads",
+      "2",
       "-preset",
       "veryfast",
       "-crf",
@@ -336,25 +382,14 @@ app.post("/api/projects", upload.single("video"), async (req, res, next) => {
       "+faststart",
       path.join(dir, "video.mp4"),
     ]);
-    const info = await run([
-      "-i",
-      path.join(dir, "video.mp4"),
-      "-f",
-      "null",
-      "-",
-    ]);
-    const match = info.match(/Duration: (\d+):(\d+):([\d.]+)/);
-    if (!match) throw Error("No se pudo leer el video");
-    const duration = +match[1] * 3600 + +match[2] * 60 + +match[3];
-    if (duration > 180.1) throw Error("El límite del MVP es 3 minutos.");
-    const dims = info.match(/Video:.*? (\d{2,5})x(\d{2,5})/);
-    if (!dims) throw Error("Resolución no reconocida");
+    const normalized = await probeMedia(path.join(dir, "video.mp4"));
     const p = {
       id,
       name: req.file.originalname,
-      duration,
-      width: +dims[1],
-      height: +dims[2],
+      duration: normalized.duration,
+      width: normalized.width,
+      height: normalized.height,
+      sourceMedia,
       words: [],
       style: {
         fontSize: 64,
@@ -367,12 +402,13 @@ app.post("/api/projects", upload.single("video"), async (req, res, next) => {
       },
     };
     await write(p);
-    await fs.unlink(path.join(dir, "source"));
     res.json(p);
   } catch (e) {
     if (req.file) await fs.unlink(req.file.path).catch(() => {});
     if (dir) await fs.rm(dir, { recursive: true, force: true });
     next(e);
+  } finally {
+    release?.();
   }
 });
 app.delete("/api/projects/:id", async (req, res, next) => {
@@ -416,6 +452,23 @@ app.put("/api/projects/:id", async (req, res, next) => {
     next(e);
   }
 });
+app.post("/api/jobs/:id/cancel", (req, res) => {
+  const controller = jobControllers.get(req.params.id);
+  if (!controller) {
+    const job = jobs.get(req.params.id);
+    if (job) return res.json({ cancelled: false, status: job.status });
+    return res.status(404).json({ error: "Trabajo no encontrado" });
+  }
+  controller.abort();
+  res.json({ cancelled: true });
+});
+app.get("/api/resources", (req, res) =>
+  res.json({
+    ...jobLock.state(),
+    threads: resourcePolicy.threads,
+    renderConcurrency: resourcePolicy.renderConcurrency,
+  }),
+);
 app.get("/api/jobs/:id", (req, res) => {
   const job = jobs.get(req.params.id);
   res.status(job ? 200 : 404).json(job || { error: "Trabajo no encontrado" });
@@ -425,19 +478,23 @@ app.post("/api/projects/:id/:action", async (req, res, next) => {
   try {
     if (!["transcribe", "export", "align"].includes(req.params.action))
       return res.sendStatus(404);
-    release = jobLock.tryAcquire();
-    if (!release)
-      return res
-        .status(409)
-        .json({ error: "Hay un trabajo en curso. Espera a que termine." });
     const p = await read(req.params.id);
     if (req.params.action === "export") validateProject(p);
     const id = randomUUID(),
-      job = { status: "running", message: "Preparando…", progress: 0 };
+      job = {
+        status: "running",
+        message: "En cola · esperando recursos…",
+        progress: 0,
+      };
+    const controller = new AbortController();
+    jobControllers.set(id, controller);
     jobs.set(id, job);
     res.json({ id });
     (async () => {
       try {
+        release = await jobLock.acquire(controller.signal);
+        requireFreeMemory(req.params.action);
+        if (controller.signal.aborted) throw Error("Operación cancelada.");
         const dir = folder(p.id);
         if (
           req.params.action === "transcribe" ||
@@ -449,20 +506,23 @@ app.post("/api/projects/:id/:action", async (req, res, next) => {
             ? req.body.language
             : "es";
           job.message = "Extrayendo audio…";
-          const audio = path.join(dir, "audio.f32");
-          await run([
-            "-y",
-            "-i",
-            path.join(dir, "video.mp4"),
-            "-vn",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-f",
-            "f32le",
-            audio,
-          ]);
+          const audio = path.join(dir, `audio-${id}.f32`);
+          await run(
+            [
+              "-y",
+              "-i",
+              path.join(dir, "video.mp4"),
+              "-vn",
+              "-ar",
+              "16000",
+              "-ac",
+              "1",
+              "-f",
+              "f32le",
+              audio,
+            ],
+            controller.signal,
+          );
           const result = await new Promise((resolve, reject) => {
             const worker = new Worker(
               path.join(
@@ -481,24 +541,29 @@ app.post("/api/projects/:id/:action", async (req, res, next) => {
               },
             );
             let settled = false;
+            const finish = async (error, result) => {
+              if (settled) return;
+              settled = true;
+              controller.signal.removeEventListener("abort", abort);
+              await worker.terminate();
+              if (error) reject(error);
+              else resolve(result);
+            };
+            const abort = () => finish(Error("Operación cancelada."));
+            controller.signal.addEventListener("abort", abort, { once: true });
+            if (controller.signal.aborted) abort();
             worker.on("message", (m) => {
               if (m.message) job.message = m.message;
-              if (m.error) {
-                settled = true;
-                reject(Error(m.error));
-                worker.terminate();
-              }
-              if (m.result) {
-                settled = true;
-                resolve(m.result);
-                worker.terminate();
-              }
+              if (m.error) void finish(Error(m.error));
+              if (m.result) void finish(null, m.result);
             });
-            worker.on("error", reject);
+            worker.on("error", (error) => void finish(error));
             worker.on("exit", (code) => {
-              if (!settled) reject(Error(`El transcriptor se cerró (${code})`));
+              if (!settled)
+                void finish(Error(`El procesamiento se cerró (${code})`));
             });
           });
+          if (controller.signal.aborted) throw Error("Operación cancelada.");
           let previous = 0;
           if (req.params.action === "align") {
             p.words = result.words.map(({ text, start, end, confidence }) => ({
@@ -544,9 +609,29 @@ app.post("/api/projects/:id/:action", async (req, res, next) => {
           bundled ??= await bundle({
             entryPoint: path.join(root, "src/remotion.tsx"),
           });
+          if (controller.signal.aborted) throw Error("Operación cancelada.");
+          const original = path.join(dir, "source");
+          const hasOriginal = await fs.access(original).then(
+            () => true,
+            () => false,
+          );
+          const sourceFile = hasOriginal
+            ? original
+            : path.join(dir, "video.mp4");
+          const media =
+            hasOriginal && p.sourceMedia
+              ? p.sourceMedia
+              : await probeMedia(sourceFile);
+          const settings = originalExportSettings(media);
           const inputProps = {
             project: p,
-            src: `http://127.0.0.1:4310/media/${p.id}/video.mp4`,
+            src:
+              `http://127.0.0.1:${port}/media/` +
+              p.id +
+              (hasOriginal ? "/source" : "/video.mp4"),
+            outputWidth: settings.width,
+            outputHeight: settings.height,
+            renderFps: settings.fps,
           };
           const composition = await selectComposition({
             serveUrl: bundled,
@@ -554,29 +639,88 @@ app.post("/api/projects/:id/:action", async (req, res, next) => {
             inputProps,
           });
           const name = `export-${id}.mp4`;
-          await renderMedia({
-            serveUrl: bundled,
-            composition,
-            inputProps,
-            codec: "h264",
-            outputLocation: path.join(dir, name),
-            concurrency: 2,
-            onProgress: ({ progress }) => {
-              job.progress = progress;
-              job.message = `Exportando ${Math.round(progress * 100)}%`;
-            },
+          const rendered = path.join(dir, `render-${id}.mp4`);
+          const cancelRender = makeCancelSignal();
+          const abortRender = () => cancelRender.cancel();
+          controller.signal.addEventListener("abort", abortRender, {
+            once: true,
           });
+          if (controller.signal.aborted) abortRender();
+          try {
+            await renderMedia({
+              serveUrl: bundled,
+              composition,
+              inputProps,
+              codec: settings.codec,
+              ...(settings.videoBitrate
+                ? { videoBitrate: settings.videoBitrate }
+                : { crf: settings.crf }),
+              muted: true,
+              pixelFormat: "yuv420p",
+              x264Preset: settings.codec === "h264" ? "veryfast" : undefined,
+              outputLocation: rendered,
+              ffmpegOverride: ({ args }) => [
+                ...args.slice(0, -1),
+                "-threads",
+                String(resourcePolicy.threads),
+                args.at(-1),
+              ],
+              cancelSignal: cancelRender.cancelSignal,
+              concurrency: resourcePolicy.renderConcurrency,
+              offthreadVideoCacheSizeInBytes: resourcePolicy.videoCacheBytes,
+              offthreadVideoThreads: 1,
+              onProgress: ({ progress }) => {
+                job.progress = progress;
+                job.message = `Exportando ${Math.round(progress * 100)}%`;
+              },
+            });
+            job.message = "Conservando audio y finalizando MP4…";
+            await run(
+              originalAudioMuxArgs(
+                rendered,
+                sourceFile,
+                path.join(dir, name),
+                media,
+                settings,
+                Math.min(p.duration, media.duration),
+              ),
+              controller.signal,
+            );
+          } catch (error) {
+            await fs.unlink(path.join(dir, name)).catch(() => {});
+            throw error;
+          } finally {
+            controller.signal.removeEventListener("abort", abortRender);
+            await fs.unlink(rendered).catch(() => {});
+          }
           job.url = `/media/${p.id}/${name}`;
-          job.message = "Exportación lista";
+          job.message =
+            "Exportación lista" +
+            (!hasOriginal
+              ? " · referencia: video disponible (proyecto anterior)"
+              : " · parámetros del original") +
+            (settings.codecChanged
+              ? " · convertido a H.264 por compatibilidad"
+              : "") +
+            (media.variableFrameRate
+              ? " · FPS variables convertidos a una tasa constante de referencia"
+              : "");
         }
         job.status = "done";
         job.progress = 1;
       } catch (e) {
-        job.status = "error";
-        job.message = e.message;
-        console.error(e);
+        job.status = controller.signal.aborted ? "cancelled" : "error";
+        job.message = controller.signal.aborted
+          ? "Operación cancelada."
+          : e.message;
+        if (!controller.signal.aborted) console.error(e);
       } finally {
-        release();
+        if (req.params.action === "align" || req.params.action === "transcribe")
+          await fs
+            .unlink(path.join(folder(p.id), `audio-${id}.f32`))
+            .catch(() => {});
+        release?.();
+        jobControllers.delete(id);
         setTimeout(() => jobs.delete(id), 3600000).unref();
       }
     })();
@@ -595,8 +739,8 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(400).json({ error: err.message || "Error inesperado" });
 });
-app.listen(4310, "127.0.0.1", () =>
+app.listen(port, "127.0.0.1", () =>
   console.log(
-    "AnimaTX: http://127.0.0.1:4310 (desarrollo: http://127.0.0.1:5173)",
+    `AnimaTX: http://127.0.0.1:${port} (desarrollo: http://127.0.0.1:5173)`,
   ),
 );

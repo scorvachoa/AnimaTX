@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { PanelTabs } from "./PanelTabs";
-import { fonts, Project } from "./Video";
+import { Project } from "./Video";
 type Style = Project["style"];
-import { animations } from "./text-animations.mjs";
+import { LineTextControls } from "./LineTextControls";
+import { secondAppearanceDefaults } from "./text-appearance.mjs";
 import {
   CaptionBounds,
   positionOffset,
@@ -123,6 +124,7 @@ export function StylePanel({
       ...s,
       ...(s.twoLines
         ? {
+            ...secondAppearanceDefaults(s),
             secondFontSize: s.secondFontSize ?? s.fontSize,
             secondColor: s.secondColor ?? s.color,
             secondActiveColor: s.secondActiveColor ?? s.activeColor,
@@ -156,30 +158,6 @@ export function StylePanel({
     </label>
   );
   function line(second: boolean) {
-    const keys = second
-      ? ({
-          font: "secondFontFamily",
-          size: "secondFontSize",
-          color: "secondColor",
-          active: "secondActiveColor",
-          outline: "secondOutline",
-          animation: "secondAnimation",
-          spacing: "secondLetterSpacing",
-          upper: "secondUppercase",
-        } as const)
-      : ({
-          font: "fontFamily",
-          size: "fontSize",
-          color: "color",
-          active: "activeColor",
-          outline: "outline",
-          animation: "animation",
-          spacing: "letterSpacing",
-          upper: "uppercase",
-        } as const);
-    const font = second
-      ? (s.secondFontFamily ?? "Impact")
-      : (s.fontFamily ?? "Arial");
     return (
       <section
         id="style-line-content"
@@ -196,87 +174,7 @@ export function StylePanel({
               : "Texto"}
           </h3>
         </div>
-        <label>
-          Tipografía
-          <select value={font} onChange={(e) => set(keys.font, e.target.value)}>
-            {fonts.map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-          </select>
-        </label>
-        {slider(
-          keys.size,
-          "Tamaño",
-          second ? (s.secondFontSize ?? s.fontSize) : s.fontSize,
-          16,
-          180,
-        )}
-        <div className="colors">
-          {[
-            [
-              keys.color,
-              "Texto",
-              second ? (s.secondColor ?? s.color) : s.color,
-            ],
-            [
-              keys.active,
-              "Resaltado",
-              second ? (s.secondActiveColor ?? s.activeColor) : s.activeColor,
-            ],
-            [
-              keys.outline,
-              "Borde",
-              second ? (s.secondOutline ?? s.outline) : s.outline,
-            ],
-          ].map(([key, label, value]) => (
-            <label key={key}>
-              <input
-                type="color"
-                aria-label={`${label} ${second ? "línea inferior" : "línea superior"}`}
-                value={value}
-                onChange={(e) => set(key as keyof Style, e.target.value)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-        <label className="line-animation">
-          Animación
-          <select
-            value={second ? (s.secondAnimation ?? s.animation) : s.animation}
-            onChange={(e) => set(keys.animation, e.target.value)}
-          >
-            {animations.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {slider(
-          keys.spacing,
-          "Espaciado entre letras",
-          second
-            ? (s.secondLetterSpacing ?? s.letterSpacing ?? 0)
-            : (s.letterSpacing ?? 0),
-          -3,
-          30,
-          0.5,
-        )}
-        <label>
-          Mayúsculas
-          <select
-            value={
-              (second ? (s.secondUppercase ?? s.uppercase) : s.uppercase)
-                ? "upper"
-                : "original"
-            }
-            onChange={(e) => set(keys.upper, e.target.value === "upper")}
-          >
-            <option value="original">Texto original</option>
-            <option value="upper">TODO EN MAYÚSCULAS</option>
-          </select>
-        </label>
+        <LineTextControls style={s} second={second} onSet={set} />
       </section>
     );
   }
@@ -290,7 +188,6 @@ export function StylePanel({
         items={[
           ["layout", "Diseño"],
           ["text", "Texto"],
-          ["animation", "Animación"],
           ["position", "Posición"],
         ]}
         value={section}
@@ -298,7 +195,6 @@ export function StylePanel({
         panelIds={{
           layout: "style-section-content",
           text: "style-section-content",
-          animation: "style-section-content",
           position: "style-section-content",
         }}
       />
@@ -365,7 +261,7 @@ export function StylePanel({
             </select>
           </label>
         </div>
-        <div hidden={section !== "text" && section !== "animation"}>
+        <div hidden={section !== "text"}>
           {s.twoLines && (
             <PanelTabs
               label="Línea del subtítulo"

@@ -1,4 +1,9 @@
 import React from "react";
+import {
+  lineAppearance,
+  alphaColor,
+  caseCharacters,
+} from "./text-appearance.mjs";
 import { captionCharacters } from "./caption-display.mjs";
 import type { CoverSettings } from "./cover.mjs";
 import { lineMotion, wordMotion } from "./text-animations.mjs";
@@ -58,6 +63,28 @@ export type Project = {
     uppercase?: boolean;
     secondUppercase?: boolean;
     hidePunctuation?: boolean;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    textCase?: "original" | "upper" | "lower" | "capitalize";
+    outlineOpacity?: number;
+    outlineEnabled?: boolean;
+    shadowEnabled?: boolean;
+    secondOutlineEnabled?: boolean;
+    secondShadowEnabled?: boolean;
+    outlineSize?: number;
+    shadowColor?: string;
+    shadowOpacity?: number;
+    shadowSize?: number;
+    secondBold?: boolean;
+    secondItalic?: boolean;
+    secondUnderline?: boolean;
+    secondTextCase?: "original" | "upper" | "lower" | "capitalize";
+    secondOutlineOpacity?: number;
+    secondOutlineSize?: number;
+    secondShadowColor?: string;
+    secondShadowOpacity?: number;
+    secondShadowSize?: number;
     secondLetterSpacing?: number;
     secondAnimation?: string;
     secondActiveColor?: string;
@@ -129,13 +156,15 @@ export function CaptionVideo({
             fontSize: s.fontSize,
             lineHeight: 1.2,
             letterSpacing: s.letterSpacing ?? 0,
-            textTransform: s.uppercase ? "uppercase" : "none",
+            textTransform: "none",
             paintOrder: "stroke fill",
             WebkitTextStroke: `${Math.max(1, s.fontSize / 18)}px ${s.outline}`,
             textShadow: "0 3px 8px #0008",
           }}
         >
           {lines.map((line, index) => {
+            const appearance = lineAppearance(s, index === 1);
+            let firstLetter = true;
             const animation =
               index === 1 ? (s.secondAnimation ?? s.animation) : s.animation;
             const activeColor =
@@ -144,8 +173,6 @@ export function CaptionVideo({
                 : s.activeColor;
             const outline =
               index === 1 ? (s.secondOutline ?? s.outline) : s.outline;
-            const uppercase =
-              index === 1 ? (s.secondUppercase ?? s.uppercase) : s.uppercase;
             const size =
               index === 1 ? (s.secondFontSize ?? s.fontSize) : s.fontSize;
             const motion = lineMotion(animation, time - b[0].start, index);
@@ -160,16 +187,31 @@ export function CaptionVideo({
                     index === 1
                       ? (s.secondLetterSpacing ?? s.letterSpacing ?? 0)
                       : (s.letterSpacing ?? 0),
-                  textTransform: uppercase ? "uppercase" : "none",
-                  WebkitTextStroke: `${Math.max(1, size / 18)}px ${outline}`,
+                  textTransform: "none",
+                  fontWeight: appearance.bold ? 900 : 400,
+                  fontStyle: appearance.italic ? "italic" : "normal",
+                  WebkitTextStroke: appearance.outlineEnabled
+                    ? `${appearance.outlineSize}px ${alphaColor(outline, appearance.outlineOpacity)}`
+                    : "0px transparent",
+                  textShadow: appearance.shadowEnabled
+                    ? `0 3px ${appearance.shadowSize}px ${alphaColor(appearance.shadowColor, appearance.shadowOpacity)}`
+                    : "none",
                   ...motion,
                 }}
               >
                 {line.map((w, wordIndex) => {
-                  const characters = captionCharacters(
-                    w.text,
-                    s.hidePunctuation,
+                  const raw = captionCharacters(w.text, s.hidePunctuation);
+                  const characters = caseCharacters(
+                    raw,
+                    w.style?.uppercase === undefined
+                      ? appearance.textCase
+                      : w.style.uppercase
+                        ? "upper"
+                        : "original",
+                    firstLetter,
                   );
+                  if (raw.some(({ letter }) => /\p{L}/u.test(letter)))
+                    firstLetter = false;
                   if (!characters.length) return null;
                   const wordAnimation = w.style?.animation ?? animation;
                   const wordSize = w.style?.fontSize ?? size;
@@ -189,12 +231,10 @@ export function CaptionVideo({
                         margin: "0 0.13em",
                         fontSize: w.style?.fontSize,
                         fontFamily: w.style?.fontFamily,
-                        textTransform:
-                          w.style?.uppercase === undefined
-                            ? undefined
-                            : w.style.uppercase
-                              ? "uppercase"
-                              : "none",
+                        textTransform: "none",
+                        textDecoration: appearance.underline
+                          ? "underline"
+                          : "none",
                         color:
                           w.style?.color ??
                           (wordAnimation === "karaoke" &&

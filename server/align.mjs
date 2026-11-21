@@ -1,9 +1,12 @@
+import { inferenceSessionOptions, requireFreeMemory } from "./resources.mjs";
 import { parentPort, workerData } from "node:worker_threads";
 import fs from "node:fs/promises";
 import { AutoProcessor, AutoModelForCTC, env } from "@huggingface/transformers";
 import { alignCTC, scriptTokens } from "./ctc-align.mjs";
+let model;
 try {
-  scriptTokens(workerData.script);
+  requireFreeMemory("align");
+  scriptTokens(workerData.script, workerData.language);
   env.cacheDir = workerData.cache;
   const id = "onnx-community/mms-300m-1130-forced-aligner-ONNX";
   let lastProgress = "";
@@ -19,14 +22,17 @@ try {
   const processor = await AutoProcessor.from_pretrained(id, {
     progress_callback,
   });
-  const model = await AutoModelForCTC.from_pretrained(id, {
+  model = await AutoModelForCTC.from_pretrained(id, {
     dtype: "q8",
     device: "cpu",
+    session_options: inferenceSessionOptions(),
     progress_callback,
   });
   const bytes = await fs.readFile(workerData.audio),
     audio = new Float32Array(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength / 4,
     );
   const chunks = [],
     step = 10 * 16000;
@@ -46,7 +52,7 @@ try {
         ((Math.min(audio.length, start + step) - from) / (to - from)) * frames,
       );
     const data = Float32Array.from(
-      logits.data.slice(first * classes, last * classes),
+      logits.data.subarray(first * classes, last * classes),
     );
     chunks.push({ data, classes, frames: last - first });
     totalFrames += last - first;
@@ -59,6 +65,9 @@ try {
     joined.set(c.data, offset);
     offset += c.data.length;
   }
+  chunks.length = 0;
+  await model.dispose();
+  model = null;
   parentPort.postMessage({
     message: "Calculando alineación acústica del guion…",
   });
@@ -68,9 +77,11 @@ try {
     classes,
     workerData.script,
     audio.length / 16000,
+    workerData.language,
   );
-  await model.dispose();
   parentPort.postMessage({ result });
 } catch (e) {
   parentPort.postMessage({ error: e.message });
+} finally {
+  await model?.dispose().catch(() => {});
 }

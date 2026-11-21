@@ -5,7 +5,7 @@ import { filmstripTiles } from "../src/filmstrip.mjs";
 test("preferencias de navegación válidas sobreviven a serialización y entradas antiguas usan defaults", () => {
   const value = {
     styleTab: "customize",
-    subtitleTab: "timing",
+    subtitleTab: "text",
     styleSection: "position",
     selectedLine: "lower",
     coverSection: "title",
@@ -31,4 +31,18 @@ test("miniaturas compactas mantienen proporción y fotogramas dentro del sprite"
       assert.ok(tile.index >= 0 && tile.index < 40);
     }
   }
+});
+
+test("la antigua pestaña Fotograma se migra a Plantilla", () => {
+  assert.equal(
+    normalizeEditorUi({ coverSection: "frame" }).coverSection,
+    "template",
+  );
+});
+
+test("la antigua vista Tiempos se abre en Texto y tiempos", () => {
+  assert.equal(
+    normalizeEditorUi({ subtitleTab: "timing" }).subtitleTab,
+    "text",
+  );
 });

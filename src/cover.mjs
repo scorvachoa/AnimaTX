@@ -1,3 +1,8 @@
+import {
+  drawCoverLines,
+  validateCoverLines,
+  distributeCoverTitle,
+} from "./cover-lines.mjs";
 import { constrainPosition } from "./caption-position.mjs";
 export const coverDefaults = {
   time: 0,
@@ -136,11 +141,112 @@ export const coverTemplates = [
     },
   },
 ];
+const line = (text, fontFamily, fontSize, color, extra = {}) => ({
+  text,
+  fontFamily,
+  fontSize,
+  color,
+  outline: "#151515",
+  bold: true,
+  textCase: "original",
+  outlineEnabled: true,
+  outlineSize: 5,
+  shadowEnabled: true,
+  shadowColor: "#000000",
+  shadowOpacity: 0.6,
+  shadowSize: 12,
+  ...extra,
+});
+const designs = [
+  [
+    line("HAZLO", "Impact", 140, "#ffffff"),
+    line("INCREÍBLE", "Impact", 166, "#e8ff59"),
+  ],
+  [
+    line("Una nueva", "Georgia", 62, "#fff2cc", {
+      italic: true,
+      bold: false,
+      outlineEnabled: false,
+    }),
+    line("perspectiva", "Georgia", 112, "#ffffff", { outlineSize: 2 }),
+    line("EMPIEZA AQUÍ", "Arial", 38, "#e7be79", {
+      letterSpacing: 5,
+      outlineEnabled: false,
+    }),
+  ],
+  [
+    line("SIN LÍMITES", "Impact", 138, "#111111", {
+      outlineEnabled: false,
+      shadowEnabled: false,
+    }),
+  ],
+  [
+    line("OTRA", "Arial", 66, "#ffffff", {
+      letterSpacing: 8,
+      outlineEnabled: false,
+    }),
+    line("DIMENSIÓN", "Impact", 144, "#70ffff", {
+      shadowColor: "#00eaff",
+      shadowOpacity: 1,
+      shadowSize: 30,
+    }),
+  ],
+  [
+    line("CADA", "Arial", 42, "#ffca85", {
+      letterSpacing: 8,
+      outlineEnabled: false,
+    }),
+    line("instante", "Georgia", 116, "#ffffff", {
+      italic: true,
+      outlineSize: 2,
+    }),
+    line("CUENTA", "Arial", 54, "#ffffff", {
+      letterSpacing: 5,
+      outlineEnabled: false,
+    }),
+  ],
+  [
+    line("hecho a mano", "Segoe Print", 92, "#ffe1f0", {
+      bold: false,
+      outlineSize: 2,
+      italic: true,
+    }),
+  ],
+  [
+    line("¡NO TE", "Comic Sans MS", 82, "#ffffff", { italic: true }),
+    line("LO VAS", "Impact", 136, "#fff067"),
+    line("A CREER!", "Impact", 116, "#ffffff"),
+  ],
+  [
+    line("Menos es más.", "Arial", 68, "#ffffff", {
+      bold: false,
+      outlineEnabled: false,
+      letterSpacing: 2,
+    }),
+  ],
+  [
+    line("EL ARTE DE", "Arial", 42, "#ffffff", {
+      letterSpacing: 6,
+      outlineEnabled: false,
+    }),
+    line("descubrir", "Georgia", 118, "#ffdc94", {
+      italic: true,
+      outlineSize: 2,
+    }),
+  ],
+];
+coverTemplates.forEach((template, i) => {
+  template.style.lines = designs[i];
+});
 export function applyCoverTemplate(cover, template) {
   return {
     ...coverDefaults,
     ...template.style,
     title: cover.title,
+    lines: template.style.lines.map((line, i) => ({
+      ...line,
+      text: distributeCoverTitle(cover.title, template.style.lines.length)[i],
+    })),
     time: cover.time,
     zoom: cover.zoom,
     offsetX: cover.offsetX,
@@ -151,6 +257,7 @@ export function validateCover(cover, duration) {
   if (cover === undefined) return;
   if (!cover || typeof cover !== "object" || Array.isArray(cover))
     throw Error("Portada inválida");
+  validateCoverLines(cover.lines);
   if (typeof cover.title !== "string" || cover.title.length > 160)
     throw Error("El título de portada admite hasta 160 caracteres.");
   for (const [key, min, max] of [
@@ -211,7 +318,7 @@ export function wrapCoverTitle(text, measure, maxWidth) {
   }
   return lines;
 }
-export function drawCover(canvas, video, cover, safeGuide = false) {
+export function drawCover(canvas, video, cover, safeGuide = false, onLayout) {
   const ctx = canvas.getContext("2d");
   if (!ctx || !video.videoWidth) return;
   canvas.width = 1080;
@@ -253,6 +360,7 @@ export function drawCover(canvas, video, cover, safeGuide = false) {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 1080, 1920);
   }
+  if (cover.lines) return drawCoverLines(ctx, cover, safeGuide, onLayout);
   let size = cover.fontSize,
     lines;
   do {
@@ -338,5 +446,43 @@ export function drawCover(canvas, video, cover, safeGuide = false) {
     ctx.fillStyle = cover.color;
     ctx.fillText(line, cx, cy);
   });
+  const indices = cover.title
+    .split("\n")
+    .flatMap((paragraph, i) =>
+      wrapCoverTitle(
+        paragraph,
+        (value) => ctx.measureText(value).width,
+        940,
+      ).map(() => Math.min(i, 2)),
+    );
+  const rectangles = new Map();
+  measures.forEach((m, i) => {
+    const index = indices[i] ?? 0,
+      y = firstY + i * lineHeight;
+    const rect = {
+      index,
+      x: x - (m.actualBoundingBoxLeft ?? m.width / 2) - padding,
+      y: y - (m.actualBoundingBoxAscent ?? size / 2) - padding,
+      width:
+        (m.actualBoundingBoxLeft ?? m.width / 2) +
+        (m.actualBoundingBoxRight ?? m.width / 2) +
+        padding * 2,
+      height:
+        (m.actualBoundingBoxAscent ?? size / 2) +
+        (m.actualBoundingBoxDescent ?? size / 2) +
+        padding * 2,
+    };
+    const previous = rectangles.get(index);
+    if (previous) {
+      const right = Math.max(previous.x + previous.width, rect.x + rect.width),
+        bottom = Math.max(previous.y + previous.height, rect.y + rect.height);
+      rect.x = Math.min(previous.x, rect.x);
+      rect.y = Math.min(previous.y, rect.y);
+      rect.width = right - rect.x;
+      rect.height = bottom - rect.y;
+    }
+    rectangles.set(index, rect);
+  });
+  onLayout?.([...rectangles.values()]);
   return bounds;
 }
